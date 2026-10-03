@@ -67,8 +67,8 @@ workflows before credential entry, and cancel the retained negative case afterwa
 No approval policy is weakened by this package.
 
 The original inert review window expired without human approval; its waiting
-cases are retired and preserved. The fresh intent permits only probe runs 3/4
-and dispatcher run 2, all attempt 1. Its human review window is two hours;
+cases are retired and preserved. The fresh intent permits only probe runs 5/6
+and dispatcher run 3, all attempt 1. Its human review window is two hours;
 execution still has a one-minute job limit and zero source operations. Prepare
 the owner handoff before starting that clock. The source-read window and the
 one-use OAuth handler lifetime are unchanged.
@@ -80,3 +80,10 @@ not claimed. Overbroad grants are refused and discarded locally; the owner must
 revoke them in ClickUp because dropping a reference does not revoke provider access.
 An uncertain exchange/upload blocks automatic replay. Secret metadata confirms
 the name, not the stored credential value. The source runner remains disabled.
+
+The loopback start page uses `Referrer-Policy: same-origin` so a browser form
+POST carries the exact loopback Origin required by the handler. Cross-origin
+referrers remain suppressed. Redirect, callback, result and error responses
+retain `no-referrer`; null, missing and foreign Origins remain refused. The
+original no-referrer start page was verified to send Origin: null in a real
+browser. Credential-free browser validation supplements the offline tests.

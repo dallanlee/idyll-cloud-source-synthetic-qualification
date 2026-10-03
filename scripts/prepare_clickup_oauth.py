@@ -74,13 +74,13 @@ def handler_for(landing):
         def log_message(self, *_args):
             pass  # Never log paths, query strings, codes or state.
 
-        def reply(self, status, body='', location=None):
+        def reply(self, status, body='', location=None, *, referrer_policy='no-referrer'):
             data = body.encode('utf-8')
             self.send_response(status)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.send_header('Content-Length', str(len(data)))
             self.send_header('Cache-Control', 'no-store')
-            self.send_header('Referrer-Policy', 'no-referrer')
+            self.send_header('Referrer-Policy', referrer_policy)
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Content-Security-Policy',
                              "default-src 'none'; form-action 'self' https://app.clickup.com; frame-ancestors 'none'; base-uri 'none'")
@@ -126,7 +126,10 @@ def handler_for(landing):
                     ) + '<form action="/begin" method="post">'
                     '<input type="hidden" name="csrf" value="' + landing.csrf + '">'
                     '<input type="hidden" name="scope" value="' + WORKSPACE_ID + '">'
-                    '<button type="submit">Open ClickUp Workspace authorization</button></form>')
+                    '<button type="submit">Open ClickUp Workspace authorization</button></form>',
+                    # A no-referrer form POST sends Origin: null. Keep exact Origin
+                    # validation; permit referrers only for this loopback form page.
+                    referrer_policy='same-origin')
             return self.reply(404, 'Not found.')
 
         def do_POST(self):

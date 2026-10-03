@@ -21,8 +21,8 @@ jobs:
       github.run_attempt == 1 &&
       github.sha == vars.QUAL_ENV_PROBE_ACCEPTED_SHA &&
       inputs.nonce == vars.QUAL_ENV_PROBE_NONCE &&
-      ((inputs.case == 'human-negative' && github.actor_id == '13070764' && github.run_number == 3) ||
-       (inputs.case == 'bot-positive' && github.actor == 'github-actions[bot]' && github.run_number == 4))
+      ((inputs.case == 'human-negative' && github.actor_id == '13070764' && github.run_number == 5) ||
+       (inputs.case == 'bot-positive' && github.actor == 'github-actions[bot]' && github.run_number == 6))
     runs-on: ubuntu-latest
     timeout-minutes: 1
     environment: qualification-source
