@@ -156,7 +156,13 @@ def main(argv=None):
     import sys
     if not sys.stdin.isatty():
         raise ConnectionRefused('Human terminal credential entry required')
-    client_secret = credential(getpass.getpass('New ClickUp app secret (hidden; never chat): '))
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', getpass.GetPassWarning)
+        try:
+            client_secret = credential(getpass.getpass('New ClickUp app secret (hidden; never chat): '))
+        except getpass.GetPassWarning:
+            raise ConnectionRefused('Hidden credential entry unavailable; no echoed fallback allowed') from None
     landing = ConnectionLanding(args.client_id, Consumer(args.client_id, ClickUpApi(), storage), client_secret)
     client_secret = None
     with HTTPServer((HOST, PORT), handler_for(landing)) as server:
