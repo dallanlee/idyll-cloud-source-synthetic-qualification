@@ -1,0 +1,39 @@
+name: Inert environment approval probe
+on:
+  workflow_dispatch:
+    inputs:
+      case:
+        description: Fixed credential-free qualification case
+        required: true
+        type: choice
+        options: [human-negative, bot-positive]
+      nonce:
+        description: Owner-prepared finite probe nonce
+        required: true
+        type: string
+permissions: {}
+run-name: env-proof-${{ inputs.case }}-${{ inputs.nonce }}
+jobs:
+  inert-approval:
+    if: >-
+      github.repository == 'dallanlee/idyll-cloud-source-synthetic-qualification' &&
+      github.ref == 'refs/heads/codex/qualification' &&
+      github.run_attempt == 1 &&
+      github.sha == vars.QUAL_ENV_PROBE_ACCEPTED_SHA &&
+      inputs.nonce == vars.QUAL_ENV_PROBE_NONCE &&
+      ((inputs.case == 'human-negative' && github.actor_id == '13070764' && github.run_number == 1) ||
+       (inputs.case == 'bot-positive' && github.actor == 'github-actions[bot]' && github.run_number == 2))
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    environment: qualification-source
+    steps:
+      - name: Credential-free approval receipt
+        env:
+          PROBE_EXPIRES: ${{ vars.QUAL_ENV_PROBE_EXPIRES }}
+        run: |
+          python3 - <<'PY'
+          import os, time
+          deadline = int(os.environ['PROBE_EXPIRES'])
+          assert time.time() < deadline <= time.time() + 1800, 'Finite probe expired'
+          print('ENVIRONMENT_APPROVAL_PROBE_PASS; source_attempts=0; credential_access=0')
+          PY

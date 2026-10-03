@@ -43,3 +43,33 @@ the sole synthetic Workspace must be independently verified by a separately
 reviewed token consumer before the connection or source scope is accepted.
 Create the OAuth app only after its own approval; keep the landing inactive
 until the actual authorization and subsequent consumer are ready.
+## Synthetic OAuth connection and inert environment test
+
+The dedicated app must authorize only **Idyll Cloud Qualification — Synthetic Only**.
+`connect_clickup_oauth.py` is a one-use consumer. It exchanges the code with the
+fixed ClickUp HTTPS token endpoint, verifies the sole authorized Workspace through
+the fixed Workspace endpoint, then uploads only to `qualification-source` as
+`QUAL_CLICKUP_OAUTH_TOKEN` through `gh` stdin. It has no task read or workflow dispatch.
+It checks the protected storage route before credential entry, before exchange,
+and again before upload. Credentials have no command-line, environment-variable,
+log or file input. A human supplies the new app secret through hidden terminal input.
+
+The gate requires exact clean local/remote code, unchanged reviewer/branch controls,
+zero existing environment secrets, native distinct-actor approval and a live
+self-review-negative case. The two new **manual-only, credential-free** workflows
+test that route with an ephemeral Actions token. The temporary dispatcher has
+`actions: write`, which is broader underlying authority than its fixed dispatch
+operation. This is a machine dispatcher plus Dallan's human review; two-human
+independence is not established. Actor identity and approval feasibility are
+unqualified until actual GitHub readbacks. Probe run numbers/attempts, finite
+authority variables and exact head restrict the planned sequence. Retire both
+workflows before credential entry, and cancel the retained negative case afterward.
+No approval policy is weakened by this package.
+
+Do not start the consumer until exact independent code review, native gate proof
+and the human's source-grant action are ready. DNS duration is not bounded by the
+HTTP socket timeout. Browser-history erasure and secure memory zeroization are
+not claimed. Overbroad grants are refused and discarded locally; the owner must
+revoke them in ClickUp because dropping a reference does not revoke provider access.
+An uncertain exchange/upload blocks automatic replay. Secret metadata confirms
+the name, not the stored credential value. The source runner remains disabled.

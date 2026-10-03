@@ -109,6 +109,8 @@ def handler_for(landing):
             if parsed.query or not landing.active():
                 return self.reply(400, 'Request refused or preparation expired.')
             if parsed.path == '/done' and landing.consumed:
+                if hasattr(landing, 'done_message'):
+                    return self.reply(200, landing.done_message)
                 return self.reply(200, '<h1>Authorization return received</h1>'
                                   '<p>The code is held only in memory. No token exchange, '
                                   'GitHub secret upload, source read or workflow dispatch ran.</p>'
@@ -119,9 +121,9 @@ def handler_for(landing):
                     '<p>Select only <strong>' + html.escape(WORKSPACE_NAME) + '</strong> on ClickUp.</p>'
                     '<p>OAuth can grant writes inside that Workspace. This page does not enforce '
                     'the selection or prove read-only token scope. Do not select another Workspace.</p>'
-                    '<p>This preparation only holds a one-use authorization return in RAM. '
+                    + getattr(landing, 'start_message', '<p>This preparation only holds a one-use authorization return in RAM. '
                     'It cannot exchange it, export it, read a task or upload a secret.</p>'
-                    '<form action="/begin" method="post">'
+                    ) + '<form action="/begin" method="post">'
                     '<input type="hidden" name="csrf" value="' + landing.csrf + '">'
                     '<input type="hidden" name="scope" value="' + WORKSPACE_ID + '">'
                     '<button type="submit">Open ClickUp Workspace authorization</button></form>')

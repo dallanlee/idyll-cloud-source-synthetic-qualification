@@ -1,0 +1,42 @@
+name: One-shot inert approval dispatcher
+on:
+  workflow_dispatch:
+    inputs:
+      nonce:
+        description: Owner-prepared finite probe nonce
+        required: true
+        type: string
+permissions: {}
+run-name: env-dispatch-${{ inputs.nonce }}
+jobs:
+  dispatch-fixed-probe:
+    if: >-
+      github.repository == 'dallanlee/idyll-cloud-source-synthetic-qualification' &&
+      github.ref == 'refs/heads/codex/qualification' &&
+      github.run_attempt == 1 && github.run_number == 1 &&
+      github.actor_id == '13070764' &&
+      github.sha == vars.QUAL_ENV_PROBE_ACCEPTED_SHA &&
+      inputs.nonce == vars.QUAL_ENV_PROBE_NONCE
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch only the fixed credential-free environment probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROBE_NONCE: ${{ inputs.nonce }}
+          PROBE_EXPIRES: ${{ vars.QUAL_ENV_PROBE_EXPIRES }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, time
+          deadline = int(os.environ['PROBE_EXPIRES'])
+          assert time.time() < deadline <= time.time() + 1800, 'Finite probe expired'
+          body = json.dumps({'ref': 'codex/qualification', 'inputs': {
+              'case': 'bot-positive', 'nonce': os.environ['PROBE_NONCE']}})
+          result = subprocess.run(['gh', 'api', '--method', 'POST', '--input', '-',
+              'repos/dallanlee/idyll-cloud-source-synthetic-qualification/actions/workflows/environment-approval-probe.yml/dispatches'],
+              input=body, text=True, capture_output=True, timeout=20)
+          assert result.returncode == 0, 'Dispatch failed or uncertain; no automatic retry'
+          print('FIXED_PROBE_DISPATCH_SUBMITTED; source_attempts=0; source_credentials=0')
+          PY
