@@ -34,3 +34,12 @@ the exact final code, prove the environment and tag controls with the actual job
 principal, approve one finite occurrence, and qualify cancellation and independent
 executor cessation. Source access, source grant, and production acceptance are
 separate gates. Unknown effects never authorize automatic replay.
+
+`scripts/prepare_clickup_oauth.py` is a loopback-only authorization landing
+preparation, not a connected source. It binds `127.0.0.1:8768`, uses an expiring
+one-use state, and keeps a returned authorization code only in memory. It has no
+token exchange, secret export, GitHub upload, or source operation. Selection of
+the sole synthetic Workspace must be independently verified by a separately
+reviewed token consumer before the connection or source scope is accepted.
+Create the OAuth app only after its own approval; keep the landing inactive
+until the actual authorization and subsequent consumer are ready.
