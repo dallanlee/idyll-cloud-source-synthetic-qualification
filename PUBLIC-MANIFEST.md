@@ -14,3 +14,4 @@ Only these files belong in the public repository. Local control requests and rea
 - `tests/test_source_bridge.py`
 - `tests/test_recurrence_reconciliation.py`
 - `tests/test_source_disabled.py`
+- `tests/test_github_controls.py`

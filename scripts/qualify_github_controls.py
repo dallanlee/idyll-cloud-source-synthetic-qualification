@@ -58,6 +58,13 @@ def main():
         status, commit = request('GET', '/git/commits/' + code_sha)
         if status != 200 or commit.get('sha') != code_sha:
             raise ValueError('Unknown commit')
+        stop_before, _ = request('GET', '/git/ref/tags/idyll-cloud-q-stop-v1')
+        branch_before, before_ref = request('GET', '/git/ref/heads/codex/qualification')
+        if (stop_before != 404 or branch_before != 200
+                or before_ref.get('ref') != 'refs/heads/codex/qualification'
+                or before_ref.get('object', {}).get('type') != 'commit'
+                or before_ref['object'].get('sha') != code_sha):
+            raise ValueError('Unsafe probe preconditions')
         status, alternate = request('POST', '/git/commits', {
             'message': 'Synthetic object for forbidden-ref-update proof',
             'tree': commit['tree']['sha'], 'parents': [code_sha]})
@@ -88,6 +95,8 @@ def main():
         code_update, _ = request('PATCH', '/git/refs/heads/codex/qualification',
                                  {'sha': alternate['sha'], 'force': False})
         retained, final_ref = request('GET', '/git/ref/tags/' + tag)
+        stop_after, _ = request('GET', '/git/ref/tags/idyll-cloud-q-stop-v1')
+        branch_after, after_ref = request('GET', '/git/ref/heads/codex/qualification')
         checks = {
             'annotation_exact': annotation.get('message') == message,
             'duplicate_ref_refused': duplicate == 422,
@@ -99,8 +108,12 @@ def main():
             'stop_creation_refused': stop_creation == 422,
             'code_update_refused': code_update == 422,
             'claim_retained': retained == 200 and final_ref == reference,
+            'stop_remains_absent': stop_after == 404,
+            'code_branch_unchanged': branch_after == 200 and after_ref == before_ref,
         }
         receipt.update(metadata, ref=ref, checks=checks,
+                       annotation_echo={'exact': annotation.get('message') == message,
+                                        'one_trailing_newline': annotation.get('message') == message + '\n'},
                        statuses={'duplicate': duplicate, 'claim_update': update,
                                  'claim_delete': deletion, 'stop_create': stop_creation,
                                  'code_update': code_update},
