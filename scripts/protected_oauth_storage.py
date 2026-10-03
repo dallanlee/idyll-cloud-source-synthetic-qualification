@@ -97,6 +97,12 @@ class GitHubStorage:
     def ready(self):
         if self.stored:
             raise StorageRefused('Source credential already stored; reconcile before another attempt')
+        try:
+            principal = json.loads(self.command(['gh', 'api', 'user']))
+        except Exception:
+            raise StorageRefused('Owning GitHub principal not verified') from None
+        if principal.get('id') != REVIEWER_ID:
+            raise StorageRefused('Owning GitHub principal not verified')
         if (self.command(['git', 'rev-parse', 'HEAD']).strip() != self.sha
                 or self.command(['git', 'status', '--porcelain', '--untracked-files=all']).strip()
                 or self.api('branches/codex%2Fqualification').get('commit', {}).get('sha') != self.sha):
