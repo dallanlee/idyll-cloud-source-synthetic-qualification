@@ -13,7 +13,7 @@ jobs:
     if: >-
       github.repository == 'dallanlee/idyll-cloud-source-synthetic-qualification' &&
       github.ref == 'refs/heads/codex/qualification' &&
-      github.run_attempt == 1 && github.run_number == 1 &&
+      github.run_attempt == 1 && github.run_number == 2 &&
       github.actor_id == '13070764' &&
       github.sha == vars.QUAL_ENV_PROBE_ACCEPTED_SHA &&
       inputs.nonce == vars.QUAL_ENV_PROBE_NONCE
@@ -31,7 +31,7 @@ jobs:
           python3 - <<'PY'
           import json, os, subprocess, time
           deadline = int(os.environ['PROBE_EXPIRES'])
-          assert time.time() < deadline <= time.time() + 1800, 'Finite probe expired'
+          assert time.time() < deadline <= time.time() + 7200, 'Finite inert review expired'
           body = json.dumps({'ref': 'codex/qualification', 'inputs': {
               'case': 'bot-positive', 'nonce': os.environ['PROBE_NONCE']}})
           result = subprocess.run(['gh', 'api', '--method', 'POST', '--input', '-',

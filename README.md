@@ -66,6 +66,13 @@ authority variables and exact head restrict the planned sequence. Retire both
 workflows before credential entry, and cancel the retained negative case afterward.
 No approval policy is weakened by this package.
 
+The original inert review window expired without human approval; its waiting
+cases are retired and preserved. The fresh intent permits only probe runs 3/4
+and dispatcher run 2, all attempt 1. Its human review window is two hours;
+execution still has a one-minute job limit and zero source operations. Prepare
+the owner handoff before starting that clock. The source-read window and the
+one-use OAuth handler lifetime are unchanged.
+
 Do not start the consumer until exact independent code review, native gate proof
 and the human's source-grant action are ready. DNS duration is not bounded by the
 HTTP socket timeout. Browser-history erasure and secure memory zeroization are
