@@ -66,5 +66,11 @@ class LandingTests(unittest.TestCase):
                        {'code':'fake','state':self.landing.state,'token':'fake-token'}):
             with self.assertRaises(ValueError): self.landing.callback(urlencode(values), host='127.0.0.1:8768')
 
+    def test_unicode_state_is_rejected_with_no_credential_capture(self):
+        with self.assertRaises(ValueError): self.start(urlencode({'csrf':'\u00e9', 'scope':module.WORKSPACE_ID}))
+        self.start()
+        with self.assertRaises(ValueError): self.landing.callback(urlencode({'code':'fake','state':'\u00e9'}), host='127.0.0.1:8768')
+        self.assertIsNone(self.landing._authorization_code)
+
 
 if __name__ == '__main__': unittest.main()

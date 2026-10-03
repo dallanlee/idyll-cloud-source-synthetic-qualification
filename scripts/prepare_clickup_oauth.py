@@ -44,7 +44,7 @@ class Landing:
         values = parse_qs(body, strict_parsing=True, keep_blank_values=True, max_num_fields=2)
         if set(values) != {'csrf', 'scope'} or any(len(v) != 1 for v in values.values()):
             raise ValueError('Invalid authorization start')
-        if (not secrets.compare_digest(values['csrf'][0], self.csrf)
+        if (not secrets.compare_digest(values['csrf'][0].encode(), self.csrf.encode())
                 or values['scope'][0] != WORKSPACE_ID):
             raise ValueError('Authorization scope refused')
         self.begun = True
@@ -57,7 +57,7 @@ class Landing:
         values = parse_qs(query, strict_parsing=True, keep_blank_values=True, max_num_fields=3)
         if set(values) != {'code', 'state'} or any(len(v) != 1 for v in values.values()):
             raise ValueError('Invalid authorization return')
-        if (not secrets.compare_digest(values['state'][0], self.state)
+        if (not secrets.compare_digest(values['state'][0].encode(), self.state.encode())
                 or not re.fullmatch(r'[A-Za-z0-9_.~+-]{1,2000}', values['code'][0])):
             raise ValueError('Authorization return refused')
         self.consumed = True
