@@ -1,0 +1,38 @@
+# Review draft. The probe has no source credential, source access, or schedule.
+name: Synthetic GitHub control qualification
+on:
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: synthetic-github-controls
+  cancel-in-progress: false
+jobs:
+  github-controls:
+    if: github.repository_id == '1402638368' && github.ref == 'refs/heads/codex/qualification'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: write # only this synthetic repository; no ruleset bypass
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify exact reviewed probe code
+        env:
+          QUAL_CONTROLS_ACCEPTED_CODE_SHA: ${{ vars.QUAL_CONTROLS_ACCEPTED_CODE_SHA }}
+        shell: bash
+        run: |
+          set -eu
+          test -n "$QUAL_CONTROLS_ACCEPTED_CODE_SHA"
+          test "$GITHUB_SHA" = "$QUAL_CONTROLS_ACCEPTED_CODE_SHA"
+          test "$(git rev-parse HEAD)" = "$QUAL_CONTROLS_ACCEPTED_CODE_SHA"
+          git diff --quiet HEAD
+          test -z "$(git status --porcelain)"
+      - name: One finite GitHub-only control probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUAL_CONTROLS_ACCEPTED_CODE_SHA: ${{ vars.QUAL_CONTROLS_ACCEPTED_CODE_SHA }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        shell: bash
+        run: exec python3 -u scripts/qualify_github_controls.py

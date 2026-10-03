@@ -1,0 +1,60 @@
+# REVIEW DRAFT: deliberately outside .github/workflows; not remotely installed.
+# Requires reviewed environment, accepted code SHA, a fresh finite occurrence,
+# source OAuth grant, independent Vex gate and explicit fixture publication.
+name: Fixed synthetic source read qualification
+on:
+  workflow_dispatch:
+    inputs:
+      occurrence_id:
+        description: Exactly the independently approved finite occurrence
+        required: true
+permissions: {}
+concurrency:
+  group: synthetic-source-${{ inputs.occurrence_id }}
+  cancel-in-progress: false
+jobs:
+  fixed-source-read:
+    if: github.repository_id == '1402638368' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    environment: qualification-source
+    permissions:
+      contents: write # candidate occurrence refs; full synthetic-repo scope
+    steps:
+      - name: Fetch reviewed code without retaining repository credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify source and environment authorization before reader
+        env:
+          QUAL_ACCEPTED_CODE_SHA: ${{ vars.QUAL_ACCEPTED_CODE_SHA }}
+          QUAL_APPROVED_OCCURRENCE_ID: ${{ vars.QUAL_APPROVED_OCCURRENCE_ID }}
+          QUAL_OCCURRENCE_ID: ${{ inputs.occurrence_id }}
+          QUAL_ACCESS_APPROVED: ${{ vars.QUAL_ACCESS_APPROVED }}
+        shell: bash
+        run: |
+          set -eu
+          test -n "$QUAL_ACCEPTED_CODE_SHA"
+          test "$GITHUB_SHA" = "$QUAL_ACCEPTED_CODE_SHA"
+          test "$(git rev-parse HEAD)" = "$QUAL_ACCEPTED_CODE_SHA"
+          git diff --quiet HEAD
+          test -z "$(git status --porcelain)"
+          test -n "$QUAL_APPROVED_OCCURRENCE_ID"
+          test "$QUAL_OCCURRENCE_ID" = "$QUAL_APPROVED_OCCURRENCE_ID"
+          test "$QUAL_ACCESS_APPROVED" = 'idyll-cloud-q-v1-fixed-read'
+      - name: One finite fixed source read and conservative receipt
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          QUAL_OCCURRENCE_ID: ${{ inputs.occurrence_id }}
+          QUAL_ACCEPTED_CODE_SHA: ${{ vars.QUAL_ACCEPTED_CODE_SHA }}
+          QUAL_APPROVED_OCCURRENCE_ID: ${{ vars.QUAL_APPROVED_OCCURRENCE_ID }}
+          QUAL_APPROVED_DUE_AT: ${{ vars.QUAL_APPROVED_DUE_AT }}
+          QUAL_APPROVED_CUTOFF_AT: ${{ vars.QUAL_APPROVED_CUTOFF_AT }}
+          QUAL_ACCESS_APPROVED: ${{ vars.QUAL_ACCESS_APPROVED }}
+          QUAL_GITHUB_TOKEN: ${{ github.token }}
+          QUAL_CLICKUP_OAUTH_TOKEN: ${{ secrets.QUAL_CLICKUP_OAUTH_TOKEN }}
+        shell: bash
+        run: |
+          python3 --version
+          exec python3 -u scripts/run_source_qualification.py
