@@ -1,7 +1,7 @@
 """Inactive fresh machine dispatcher, distinct from the protected reviewer."""
 from source_observation import empty_receipt, validate_manifest, admit_environment, REPO_URL, BRANCH_REF
 
-DISPATCH_CONFIGURED = False
+DISPATCH_CONFIGURED = True
 CONTRACT = 'idyll-cloud-q-v1-case-dispatcher'
 WORKFLOW_PATH = '.github/workflows/qualification-case-dispatcher.yml'
 TARGETS = {'retained-stop': 'retained-stop-qualification.yml',

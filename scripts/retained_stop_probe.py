@@ -2,7 +2,7 @@
 from source_observation import empty_receipt, validate_manifest, verify_native_authority, verify_claim_attribution, REPO_URL
 from source_bridge import FixedSourceServices
 
-STOP_PROBE_CONFIGURED = False
+STOP_PROBE_CONFIGURED = True
 CONTRACT = 'idyll-cloud-q-v1-retained-stop'
 WORKFLOW_PATH = '.github/workflows/retained-stop-qualification.yml'
 ALTERNATE_SHA = '260d783935a0f47eed9222ec66f48e7502cb30b7'

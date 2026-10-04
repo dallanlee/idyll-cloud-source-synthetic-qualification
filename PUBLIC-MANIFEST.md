@@ -10,8 +10,8 @@ Only these files belong in the public repository. Local control requests and rea
 - `.github/workflows/environment-probe-dispatcher.yml`
 - `drafts/source-read-qualification.yml`
 - `drafts/source-observation-qualification.yml`
-- `drafts/retained-stop-qualification.yml`
-- `drafts/qualification-case-dispatcher.yml`
+- `.github/workflows/retained-stop-qualification.yml`
+- `.github/workflows/qualification-case-dispatcher.yml`
 - `scripts/source_bridge.py`
 - `scripts/run_source_qualification.py`
 - `scripts/reconcile_occurrence.py`
