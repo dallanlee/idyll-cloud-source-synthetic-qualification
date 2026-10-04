@@ -269,6 +269,62 @@ class WitnessTests(unittest.TestCase):
         self.assertNotEqual(hidden_intermediate, stop)
         self.assertEqual(before, after)  # this unobserved change/restore is explicitly NOT detected
 
+    def owner_policy_fixture(self):
+        # Field shape from authenticated 2026-10-04 environment readback; metadata
+        # IDs below are fabricated and do not imply a new native case or policy.
+        env = copy.deepcopy(StopAPI().environment)
+        env['protection_rules'][0].update(id=1, node_id='offline-reviewer-metadata')
+        env['protection_rules'].append({'type': 'branch_policy', 'id': 2, 'node_id': 'offline-branch-metadata'})
+        branches = {'total_count': 1, 'branch_policies': [{'name': 'codex/qualification', 'type': 'branch'}]}
+        rules = []
+        for kind in ('stop', 'occurrence', 'code'):
+            value = copy.deepcopy(probe.expected_ruleset(kind))
+            value['rules'] = [{'type': item} for item in value['rules']]
+            rules.append(value)
+        return rules, env, branches
+
+    def test_owner_native_branch_marker_preserves_the_exact_policy_digest(self):
+        rules, env, branches = self.owner_policy_fixture()
+        import hashlib
+        for shape in (env['protection_rules'], env['protection_rules'][::-1], env['protection_rules'][:1]):
+            with self.subTest(shape=shape):
+                observed = probe.verify_owner_policy(*rules, dict(env, protection_rules=shape), branches)
+                self.assertEqual(observed, probe.EXPECTED_POLICY)
+                self.assertEqual(hashlib.sha256(probe.canonical(observed).encode()).hexdigest(),
+                                 '7c9eb179a2ac6169cd1c894ab90d470065f6fc73f841e4cbef8593e67784858f')
+
+    def test_owner_branch_marker_rejects_unknown_duplicate_and_malformed_rules(self):
+        rules, env, branches = self.owner_policy_fixture()
+        reviewer, marker = env['protection_rules']
+        bad = [[], [marker], [reviewer, reviewer], [reviewer, marker, marker],
+               [reviewer, {'type': 'wait_timer', 'wait_timer': 0}], [reviewer, None],
+               [reviewer, 'branch_policy'], [reviewer, {'type': 'branch_policy'}],
+               [reviewer, dict(marker, unexpected=True)], [reviewer, dict(marker, id=True)],
+               [reviewer, dict(marker, id=0)], [reviewer, dict(marker, node_id=None)],
+               [reviewer, dict(marker, node_id='')], [reviewer, dict(marker, node_id='x' * 257)],
+               [reviewer, dict(marker, node_id='non ascii \u2603')],
+               [reviewer, dict(marker, node_id='contains whitespace')]]
+        for shape in bad:
+            with self.subTest(shape=shape), self.assertRaises(ValueError):
+                probe.verify_owner_policy(*rules, dict(env, protection_rules=shape), branches)
+
+    def test_owner_branch_marker_never_substitutes_for_protection_controls(self):
+        rules, env, branches = self.owner_policy_fixture()
+        for field, changed in [('can_admins_bypass', True), ('deployment_branch_policy', {
+                'protected_branches': True, 'custom_branch_policies': False})]:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                probe.verify_owner_policy(*rules, dict(env, **{field: changed}), branches)
+        for field, changed in [('prevent_self_review', False), ('reviewers', [{'type': 'User', 'reviewer': {'id': 1}}])]:
+            altered = copy.deepcopy(env)
+            altered['protection_rules'][0][field] = changed
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                probe.verify_owner_policy(*rules, altered, branches)
+        for changed in ({'total_count': 0, 'branch_policies': []},
+                        {'total_count': 1, 'branch_policies': [{'name': 'main', 'type': 'branch'}]},
+                        {'total_count': True, 'branch_policies': branches['branch_policies']}):
+            with self.subTest(branches=changed), self.assertRaises(ValueError):
+                probe.verify_owner_policy(*rules, env, changed)
+
     def test_versioned_contract_and_canonical_bound_witness(self):
         self.assertEqual(probe.CONTRACT, 'idyll-cloud-q-v2-retained-stop')
         manifest = dict(MANIFEST, contract=probe.CONTRACT)

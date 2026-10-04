@@ -116,10 +116,24 @@ def verify_rulesets(stop, claims, *, allow_hidden=False):
 
 def verify_owner_policy(stop, claims, code, environment, branches):
     """Complete owner observation; an omitted roster is always refused here."""
+    protection = environment.get('protection_rules')
+    if (not isinstance(protection, list) or any(not isinstance(rule, dict) for rule in protection)):
+        raise ValueError('Owner environment projection refused')
+    types = [rule.get('type') for rule in protection]
+    # GitHub may include a branch_policy metadata marker alongside reviewers.
+    # Its actual restrictions are still verified by the separate branch response.
+    if (types.count('required_reviewers') != 1 or types.count('branch_policy') > 1
+            or any(kind not in ('required_reviewers', 'branch_policy') for kind in types)):
+        raise ValueError('Owner environment projection refused')
+    for rule in protection:
+        if rule['type'] == 'branch_policy' and (
+                set(rule) != {'id', 'node_id', 'type'} or type(rule['id']) is not int
+                or not 1 <= rule['id'] <= 9223372036854775807
+                or not isinstance(rule['node_id'], str) or not 1 <= len(rule['node_id']) <= 256
+                or not rule['node_id'].isascii() or any(char.isspace() for char in rule['node_id'])):
+            raise ValueError('Owner environment projection refused')
     verify_environment(environment, branches)
-    # No unexpected protection rule is silently excluded from the owner projection.
-    if (len(environment['protection_rules']) != 1 or type(environment['id']) is not int
-            or type(branches.get('total_count')) is not int):
+    if type(environment['id']) is not int or type(branches.get('total_count')) is not int:
         raise ValueError('Owner environment projection refused')
     observed = dict(EXPECTED_POLICY, rulesets={kind: project_ruleset(rule, kind)
         for kind, rule in (('stop', stop), ('occurrence', claims), ('code', code))})
