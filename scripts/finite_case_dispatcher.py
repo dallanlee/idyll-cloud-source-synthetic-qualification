@@ -69,10 +69,21 @@ def dispatch_case(manifest, transport, *, case, run_number, now, progress=lambda
             raise ValueError('Native dispatcher identity refused')
         result['outcome'] = 'UNKNOWN_DISPATCH_RESULT'
         result['dispatch_attempt_count'] = 1  # lost response consumes this exact run_number/attempt
-        status, _ = request('POST', '/actions/workflows/' + TARGETS[case] + '/dispatches',
+        status, details = request('POST', '/actions/workflows/' + TARGETS[case] + '/dispatches',
             {'ref': 'codex/qualification', 'inputs': {'occurrence_id': manifest['occurrence_id']}})
-        if status == 204:
-            result['outcome'] = 'DISPATCH_CONFIRMED'
+        if type(status) is int and 100 <= status <= 599:
+            result['dispatch_status'] = status
+        # Pinned API2026-03-10 returns200 with details;204 is the older contract.
+        # Validate fixed identity URLs internally; never emit the raw response.
+        if type(status) is int and status == 200 and isinstance(details, dict):
+            target = details.get('workflow_run_id')
+            if (type(target) is int and 1 <= target <= 9223372036854775807
+                    and str(target) != manifest['run_id']
+                    and details.get('run_url') == REPO_URL + '/actions/runs/' + str(target)
+                    and details.get('html_url') == REPO_URL.replace('https://api.github.com/repos/',
+                        'https://github.com/') + '/actions/runs/' + str(target)):
+                result['target_run_id'] = str(target)
+                result['outcome'] = 'DISPATCH_CONFIRMED'
     except TimeoutError:
         result['outcome'] = 'DEADLINE_EXPIRED'
     except Exception:

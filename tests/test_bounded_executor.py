@@ -80,6 +80,22 @@ class ExecutorTests(unittest.TestCase):
         self.assertTrue(result['executor']['reaped'])
         self.assertLess(time.monotonic() - start, 2)
 
+    def test_parent_accepts_sanitized_dispatch_details_and_the_preserved_stop_identity(self):
+        fixture = str(Path(__file__).parent / 'fixtures' / 'executor_frames.py')
+        for case, mode, contract, outcome in (
+                ('dispatch', 'dispatch', 'idyll-cloud-q-v1-case-dispatcher', 'DISPATCH_CONFIRMED'),
+                ('stop', 'retained-stop', 'idyll-cloud-q-v1-retained-stop', 'RETAINED_STOP_PASS')):
+            with self.subTest(case=case):
+                payload, deadline = payload_and_deadline(1.5)
+                payload['mode'] = mode
+                payload['manifest']['contract'] = contract
+                del payload['clickup_token']
+                if mode == 'dispatch':
+                    payload.update(case='retained-stop', run_number=2)
+                result = run_supervised(payload, deadline, child_command=[sys.executable, '-B', fixture, case])
+                self.assertEqual((result['outcome'], result['source_attempt_count'], result['executor']['reaped']),
+                                 (outcome, 0, True))
+
 
 if __name__ == '__main__':
     unittest.main()

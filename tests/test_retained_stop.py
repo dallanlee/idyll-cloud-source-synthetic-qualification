@@ -13,7 +13,8 @@ class StopAPI(ObservationAPI):
         super().__init__()
         self.run['path'] = '.github/workflows/retained-stop-qualification.yml'
         self.refs['refs/tags/idyll-cloud-q-stop-v1'] = {
-            'ref': 'refs/tags/idyll-cloud-q-stop-v1', 'object': {'sha': SHA, 'type': 'commit'}}
+            'ref': 'refs/tags/idyll-cloud-q-stop-v1', 'object': {
+                'sha': 'b825e6c6bf5f175569138112e92cf132507cadfd', 'type': 'commit'}}
         self.generic, self.changed = generic, changed
         self.patch_count = self.delete_count = 0
 
@@ -44,6 +45,26 @@ class StopAPI(ObservationAPI):
 
 
 class StopTests(unittest.TestCase):
+    def test_new_code_attributes_its_claim_while_preserving_the_exact_old_stop(self):
+        api = StopAPI()
+        new_code = '2' * 40
+        old_stop = 'b825e6c6bf5f175569138112e92cf132507cadfd'
+        api.refs['refs/heads/codex/qualification']['object']['sha'] = new_code
+        api.run['head_sha'] = new_code
+        api.refs['refs/tags/idyll-cloud-q-stop-v1']['object']['sha'] = old_stop
+        snapshots = []
+        def recorded(method, url, body=None, *, deadline=None):
+            status, value = api(method, url, body, deadline=deadline)
+            if method == 'GET' and url.endswith('/git/ref/tags/idyll-cloud-q-stop-v1') and status == 200:
+                snapshots.append(value['object']['sha'])
+            return status, value
+        result = probe.probe_retained_stop(dict(MANIFEST, contract=probe.CONTRACT, source_sha=new_code),
+            recorded, now=lambda: NOW)
+        self.assertEqual((result['outcome'], result.get('retained_stop'), result.get('claim', {}).get('source_sha')),
+            ('RETAINED_STOP_PASS', {'ref': 'refs/tags/idyll-cloud-q-stop-v1', 'sha': old_stop, 'type': 'commit'}, new_code))
+        self.assertEqual(snapshots, [old_stop, old_stop, old_stop, old_stop])
+        self.assertEqual((api.patch_count, api.delete_count, api.source_reads), (1, 1, 0))
+
     def test_retained_stop_rule_refusals_are_read_back_with_the_actual_job_boundary(self):
         api = StopAPI()
         manifest = dict(MANIFEST, contract='idyll-cloud-q-v1-retained-stop')
@@ -51,7 +72,8 @@ class StopTests(unittest.TestCase):
         self.assertEqual((result['outcome'], api.patch_count, api.delete_count, api.source_reads),
                          ('RETAINED_STOP_PASS', 1, 1, 0))
         self.assertEqual(result['retained_stop'],
-            {'ref': 'refs/tags/idyll-cloud-q-stop-v1', 'sha': SHA, 'type': 'commit'})
+            {'ref': 'refs/tags/idyll-cloud-q-stop-v1',
+             'sha': 'b825e6c6bf5f175569138112e92cf132507cadfd', 'type': 'commit'})
         self.assertEqual(result['claim']['run_id'], '123')
 
     def test_generic_refusal_or_changed_stop_is_never_a_pass_or_delete_permission(self):

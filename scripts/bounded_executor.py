@@ -38,7 +38,8 @@ def counts(value):
 def sanitize_result(value, manifest):
     allowed = set(COUNT_KEYS) | {'contract', 'outcome', 'automatic_retry_allowed',
         'occurrence_id', 'source_sha', 'run_id', 'attempt', 'claim', 'receipt', 'checks',
-        'statuses', 'retained_stop', 'dispatch_attempt_count', 'patch_attempt_count', 'delete_attempt_count'}
+        'statuses', 'retained_stop', 'dispatch_attempt_count', 'patch_attempt_count', 'delete_attempt_count',
+        'dispatch_status', 'target_run_id'}
     if (not isinstance(value, dict) or set(value) - allowed
             or value.get('outcome') not in OUTCOMES or value.get('contract') != manifest['contract']
             or value.get('automatic_retry_allowed') is not False):
@@ -79,9 +80,18 @@ def sanitize_result(value, manifest):
                 or any(type(v) is not int or not 100 <= v <= 599 for v in value['statuses'].values())):
             raise ValueError('IPC status refused')
     if 'retained_stop' in value:
+        from retained_stop_probe import EXPECTED_STOP_SHA
         stop = value['retained_stop']
-        if stop != {'ref': 'refs/tags/idyll-cloud-q-stop-v1', 'sha': manifest['source_sha'], 'type': 'commit'}:
+        if stop != {'ref': 'refs/tags/idyll-cloud-q-stop-v1', 'sha': EXPECTED_STOP_SHA, 'type': 'commit'}:
             raise ValueError('IPC stop refused')
+    if 'dispatch_status' in value and (type(value['dispatch_status']) is not int
+            or not 100 <= value['dispatch_status'] <= 599):
+        raise ValueError('IPC dispatch status refused')
+    if 'target_run_id' in value and (not isinstance(value['target_run_id'], str)
+            or re.fullmatch(r'[1-9][0-9]{0,18}', value['target_run_id']) is None
+            or int(value['target_run_id']) > 9223372036854775807
+            or value['target_run_id'] == manifest['run_id']):
+        raise ValueError('IPC dispatch identity refused')
     for key in ('dispatch_attempt_count', 'patch_attempt_count', 'delete_attempt_count'):
         if key in value and (type(value[key]) is not int or value[key] not in (0, 1)):
             raise ValueError('IPC cap refused')
@@ -99,7 +109,8 @@ def sanitize_result(value, manifest):
             or value['source_attempt_count'] != 0 or value['source_action_count'] != 0):
         raise ValueError('Unproved stop success refused')
     if value['outcome'] == 'DISPATCH_CONFIRMED' and (
-            value.get('dispatch_attempt_count') != 1 or value['source_attempt_count'] != 0):
+            value.get('dispatch_attempt_count') != 1 or value['source_attempt_count'] != 0
+            or value.get('dispatch_status') != 200 or 'target_run_id' not in value):
         raise ValueError('Unproved dispatch success refused')
     return value
 

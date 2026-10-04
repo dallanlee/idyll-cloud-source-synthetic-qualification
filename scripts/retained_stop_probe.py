@@ -6,6 +6,7 @@ STOP_PROBE_CONFIGURED = True
 CONTRACT = 'idyll-cloud-q-v1-retained-stop'
 WORKFLOW_PATH = '.github/workflows/retained-stop-qualification.yml'
 ALTERNATE_SHA = '260d783935a0f47eed9222ec66f48e7502cb30b7'
+EXPECTED_STOP_SHA = 'b825e6c6bf5f175569138112e92cf132507cadfd'
 STOP_REF = 'refs/tags/idyll-cloud-q-stop-v1'
 
 
@@ -42,7 +43,7 @@ def probe_retained_stop(manifest, transport, *, now, progress=lambda value: None
                   patch_attempt_count=0, delete_attempt_count=0)
     try:
         due, cutoff = validate_manifest(manifest, contract=CONTRACT)
-        if manifest['source_sha'] == ALTERNATE_SHA:
+        if manifest['source_sha'] == ALTERNATE_SHA or EXPECTED_STOP_SHA == ALTERNATE_SHA:
             raise ValueError('Probe needs a distinct existing target')
         result.update({key: manifest[key] for key in ('occurrence_id', 'source_sha', 'run_id', 'attempt')})
         def gate():
@@ -74,9 +75,9 @@ def probe_retained_stop(manifest, transport, *, now, progress=lambda value: None
         def stop_identity():
             value = get('/git/ref/tags/idyll-cloud-q-stop-v1')
             if (value.get('ref') != STOP_REF or value.get('object', {}).get('type') != 'commit'
-                    or value['object'].get('sha') != manifest['source_sha']):
+                    or value['object'].get('sha') != EXPECTED_STOP_SHA):
                 raise ValueError('Retained stop changed or absent')
-            return {'ref': STOP_REF, 'sha': manifest['source_sha'], 'type': 'commit'}
+            return {'ref': STOP_REF, 'sha': EXPECTED_STOP_SHA, 'type': 'commit'}
         gate()
         result['outcome'] = 'AUTHORITY_REFUSED'
         verify_native_authority(request, manifest, workflow=WORKFLOW_PATH)

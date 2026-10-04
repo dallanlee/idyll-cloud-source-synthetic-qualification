@@ -117,8 +117,11 @@ its workflow in drafts, and the original source/consumer unchanged. Publication
 does not authorize execution: leave the new workflows disabled and finite
 authority absent until the named case is ready.
 
-The stop case requires the owner-created fixed lightweight stop ref to point at
-that accepted SHA. Its reviewed valid alternate is the existing distinct commit
+The stop case preserves the owner-created fixed lightweight stop ref at the
+compiled `EXPECTED_STOP_SHA=b825e6c6bf5f175569138112e92cf132507cadfd`.
+Executing code, native approval and occurrence attribution bind the newly accepted
+code SHA independently; the existing stop is never retargeted for a correction.
+Its reviewed valid alternate is the existing distinct commit
 `260d783935a0f47eed9222ec66f48e7502cb30b7`. The job verifies the exact repository,
 branch, environment/reviewer/branch policy, native bot run/attempt, actual human
 approval, active stop and claim rulesets, existing alternate and stop identity.
@@ -154,6 +157,16 @@ GitHub documents `actions: read` for both
 and [deployment branch-policy listing](https://docs.github.com/en/rest/deployments/branch-policies#list-deployment-branch-policies),
 including installation tokens and unauthenticated public reads. The new protected
 jobs request that permission; actual job-principal access still needs readback.
+
+The pinned GitHub API `2026-03-10` returns HTTP200 with required
+`workflow_run_id`, `run_url` and `html_url` for a workflow dispatch; the prior
+HTTP204-only acknowledgement belonged to the older contract. The dispatcher
+requires a positive int64 target run ID and exact API/HTML URLs for this repository,
+then emits only `dispatch_status` and `target_run_id`. Legacy204, malformed details,
+foreign URLs, an uncertain reply or other status remain unknown and consumed;
+no repeated POST follows. The parent validates the same positive receipt fields.
+See [the version's breaking changes](https://docs.github.com/en/rest/about-the-rest-api/breaking-changes?apiVersion=2026-03-10)
+and [the dispatch endpoint contract](https://docs.github.com/en/rest/actions/workflows?apiVersion=2026-03-10#create-a-workflow-dispatch-event).
 
 Retire each finite case by disabling both newly published workflows, removing its
 finite authority variables, cancelling any still-waiting run, and verifying native

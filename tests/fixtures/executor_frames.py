@@ -21,7 +21,21 @@ result.update(source_attempt_count=1, source_action_count=1, github_attempt_coun
         'description_sha256': 'a8cf682015d6333af14144ce568b043db0f9c7cb28b9b78f0a7005c52e9c55cf',
         'started_at': datetime.now(timezone.utc).isoformat(), 'completed_at': datetime.now(timezone.utc).isoformat()})
 case = sys.argv[1]
-if case == 'raw-extra':
+if case == 'dispatch':
+    result = dict(empty_receipt('DISPATCH_CONFIRMED'), contract=manifest['contract'],
+        source_attempt_count=0, source_action_count=0, github_attempt_count=4, github_action_count=4,
+        dispatch_attempt_count=1, dispatch_status=200, target_run_id='987',
+        **{key: manifest[key] for key in ('occurrence_id', 'source_sha', 'run_id', 'attempt')})
+elif case == 'stop':
+    claim = result['claim']
+    result = dict(empty_receipt('RETAINED_STOP_PASS'), contract=manifest['contract'],
+        source_attempt_count=0, source_action_count=0, github_attempt_count=19, github_action_count=19,
+        patch_attempt_count=1, delete_attempt_count=1, claim=claim,
+        checks={'patch_ruleset_refused': True, 'delete_ruleset_refused': True, 'stop_retained': True},
+        statuses={'patch': 422, 'delete': 422}, retained_stop={
+            'ref': 'refs/tags/idyll-cloud-q-stop-v1', 'sha': 'b825e6c6bf5f175569138112e92cf132507cadfd', 'type': 'commit'},
+        **{key: manifest[key] for key in ('occurrence_id', 'source_sha', 'run_id', 'attempt')})
+elif case == 'raw-extra':
     result['raw_body'] = 'private-sentinel'
 elif case == 'unearned-success':
     result.pop('receipt')
