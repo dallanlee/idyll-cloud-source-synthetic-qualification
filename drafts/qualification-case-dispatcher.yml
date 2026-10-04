@@ -1,0 +1,39 @@
+# INACTIVE REVIEW DRAFT. Fresh intent; never reuse consumed old dispatcher runs.
+name: Fresh finite qualification case dispatcher
+on:
+  workflow_dispatch:
+    inputs:
+      occurrence_id:
+        description: Exactly the approved finite case occurrence
+        required: true
+permissions: {}
+concurrency:
+  group: synthetic-case-dispatch-${{ inputs.occurrence_id }}
+  cancel-in-progress: false
+jobs:
+  dispatch:
+    if: github.repository_id == '1402638368' && github.ref == 'refs/heads/codex/qualification' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      actions: write # repository-wide underlying authority, one code-bound dispatch
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: One fresh bot dispatch under finite authority and process deadline
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          QUAL_DISPATCH_ACCEPTED_CODE_SHA: ${{ vars.QUAL_DISPATCH_ACCEPTED_CODE_SHA }}
+          QUAL_DISPATCH_APPROVED_RUN_NUMBER: ${{ vars.QUAL_DISPATCH_APPROVED_RUN_NUMBER }}
+          QUAL_DISPATCH_OCCURRENCE_ID: ${{ inputs.occurrence_id }}
+          QUAL_DISPATCH_APPROVED_OCCURRENCE_ID: ${{ vars.QUAL_DISPATCH_APPROVED_OCCURRENCE_ID }}
+          QUAL_DISPATCH_DUE_AT: ${{ vars.QUAL_DISPATCH_DUE_AT }}
+          QUAL_DISPATCH_CUTOFF_AT: ${{ vars.QUAL_DISPATCH_CUTOFF_AT }}
+          QUAL_DISPATCH_APPROVED: ${{ vars.QUAL_DISPATCH_APPROVED }}
+          QUAL_DISPATCH_CASE: ${{ vars.QUAL_DISPATCH_CASE }}
+          QUAL_GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: exec python3 -I -B -u scripts/run_source_observation.py --dispatch

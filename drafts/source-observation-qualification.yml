@@ -1,0 +1,40 @@
+# INACTIVE REVIEW DRAFT. Observer literal also remains False.
+name: One fixed synthetic source observation
+on:
+  workflow_dispatch:
+    inputs:
+      occurrence_id:
+        description: Exactly the approved fresh finite occurrence
+        required: true
+permissions: {}
+concurrency:
+  group: synthetic-observation-${{ inputs.occurrence_id }}
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: github.repository_id == '1402638368' && github.ref == 'refs/heads/codex/qualification' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    environment: qualification-source
+    permissions:
+      contents: write # synthetic repository-wide authority; fixed code restricts use
+      actions: read # native run/approval metadata
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: One protected finite observation under independent process deadline
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          QUAL_OBSERVATION_ACCEPTED_CODE_SHA: ${{ vars.QUAL_OBSERVATION_ACCEPTED_CODE_SHA }}
+          QUAL_OBSERVATION_APPROVED_RUN_ID: ${{ vars.QUAL_OBSERVATION_APPROVED_RUN_ID }}
+          QUAL_OBSERVATION_OCCURRENCE_ID: ${{ inputs.occurrence_id }}
+          QUAL_OBSERVATION_APPROVED_OCCURRENCE_ID: ${{ vars.QUAL_OBSERVATION_APPROVED_OCCURRENCE_ID }}
+          QUAL_OBSERVATION_DUE_AT: ${{ vars.QUAL_OBSERVATION_DUE_AT }}
+          QUAL_OBSERVATION_CUTOFF_AT: ${{ vars.QUAL_OBSERVATION_CUTOFF_AT }}
+          QUAL_OBSERVATION_APPROVED: ${{ vars.QUAL_OBSERVATION_APPROVED }}
+          QUAL_GITHUB_TOKEN: ${{ github.token }}
+          QUAL_CLICKUP_OAUTH_TOKEN: ${{ secrets.QUAL_CLICKUP_OAUTH_TOKEN }}
+        shell: bash
+        run: exec python3 -I -B -u scripts/run_source_observation.py

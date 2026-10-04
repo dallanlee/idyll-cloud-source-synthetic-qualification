@@ -1,0 +1,39 @@
+# INACTIVE REVIEW DRAFT. Source-free; STOP_PROBE_CONFIGURED also remains False.
+name: Fresh retained synthetic stop qualification
+on:
+  workflow_dispatch:
+    inputs:
+      occurrence_id:
+        description: Exactly the approved fresh finite stop occurrence
+        required: true
+permissions: {}
+concurrency:
+  group: synthetic-retained-stop-${{ inputs.occurrence_id }}
+  cancel-in-progress: false
+jobs:
+  retained-stop:
+    if: github.repository_id == '1402638368' && github.ref == 'refs/heads/codex/qualification' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    environment: qualification-source
+    permissions:
+      contents: write # actual job principal; fixed claim/PATCH/DELETE operations
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Fresh source-free retained-stop case with exact native approval
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          QUAL_STOP_ACCEPTED_CODE_SHA: ${{ vars.QUAL_STOP_ACCEPTED_CODE_SHA }}
+          QUAL_STOP_APPROVED_RUN_ID: ${{ vars.QUAL_STOP_APPROVED_RUN_ID }}
+          QUAL_STOP_OCCURRENCE_ID: ${{ inputs.occurrence_id }}
+          QUAL_STOP_APPROVED_OCCURRENCE_ID: ${{ vars.QUAL_STOP_APPROVED_OCCURRENCE_ID }}
+          QUAL_STOP_DUE_AT: ${{ vars.QUAL_STOP_DUE_AT }}
+          QUAL_STOP_CUTOFF_AT: ${{ vars.QUAL_STOP_CUTOFF_AT }}
+          QUAL_STOP_APPROVED: ${{ vars.QUAL_STOP_APPROVED }}
+          QUAL_GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: exec python3 -I -B -u scripts/run_source_observation.py --retained-stop
