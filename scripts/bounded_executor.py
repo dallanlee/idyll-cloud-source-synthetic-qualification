@@ -39,7 +39,7 @@ def sanitize_result(value, manifest):
     allowed = set(COUNT_KEYS) | {'contract', 'outcome', 'automatic_retry_allowed',
         'occurrence_id', 'source_sha', 'run_id', 'attempt', 'claim', 'receipt', 'checks',
         'statuses', 'retained_stop', 'dispatch_attempt_count', 'patch_attempt_count', 'delete_attempt_count',
-        'dispatch_status', 'target_run_id'}
+        'dispatch_status', 'target_run_id', 'refusal_stage', 'ruleset_http_status'}
     if (not isinstance(value, dict) or set(value) - allowed
             or value.get('outcome') not in OUTCOMES or value.get('contract') != manifest['contract']
             or value.get('automatic_retry_allowed') is not False):
@@ -48,6 +48,26 @@ def sanitize_result(value, manifest):
     for key in ('occurrence_id', 'source_sha', 'run_id', 'attempt'):
         if key in value and value[key] != manifest[key]:
             raise ValueError('IPC attribution refused')
+    if {'refusal_stage', 'ruleset_http_status'} & set(value):
+        from retained_stop_probe import CONTRACT as STOP_CONTRACT, RULESET_REFUSAL_STAGES
+        stage, statuses = value.get('refusal_stage'), value.get('ruleset_http_status')
+        slots = {'stop'} if stage == 'stop_ruleset_http' else {'stop', 'occurrence'}
+        count = 7 if stage == 'stop_ruleset_http' else 8
+        if (manifest['contract'] != STOP_CONTRACT or value['outcome'] != 'AUTHORITY_REFUSED'
+                or not isinstance(stage, str) or stage not in RULESET_REFUSAL_STAGES
+                or not isinstance(statuses, dict) or set(statuses) != slots
+                or any(type(status) is not int or not 100 <= status <= 599 for status in statuses.values())
+                or any(key not in value for key in ('occurrence_id', 'source_sha', 'run_id', 'attempt'))
+                or value['github_attempt_count'] != count or value['github_action_count'] != count
+                or value['source_attempt_count'] != 0 or value['source_action_count'] != 0
+                or value.get('patch_attempt_count') != 0 or value.get('delete_attempt_count') != 0
+                or {'claim', 'receipt', 'checks', 'statuses', 'retained_stop', 'dispatch_attempt_count',
+                    'dispatch_status', 'target_run_id'} & set(value)):
+            raise ValueError('IPC protection diagnostic refused')
+        if (stage == 'stop_ruleset_http' and statuses['stop'] == 200
+                or stage == 'occurrence_ruleset_http' and (statuses['stop'] != 200 or statuses['occurrence'] == 200)
+                or not stage.endswith('_http') and statuses != {'stop': 200, 'occurrence': 200}):
+            raise ValueError('IPC protection status refused')
     claim = value.get('claim')
     if claim is not None:
         if (not isinstance(claim, dict) or set(claim) != {'occurrence_id', 'source_sha', 'run_id', 'attempt', 'ref', 'tag_sha'}

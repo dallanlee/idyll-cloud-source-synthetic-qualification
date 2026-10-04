@@ -21,7 +21,54 @@ result.update(source_attempt_count=1, source_action_count=1, github_attempt_coun
         'description_sha256': 'a8cf682015d6333af14144ce568b043db0f9c7cb28b9b78f0a7005c52e9c55cf',
         'started_at': datetime.now(timezone.utc).isoformat(), 'completed_at': datetime.now(timezone.utc).isoformat()})
 case = sys.argv[1]
-if case == 'dispatch':
+if case.startswith('stop-diagnostic'):
+    # Exercise the real eight-read probe path before testing public parent IPC.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    import retained_stop_probe as probe
+    from test_retained_stop import StopAPI
+    api = StopAPI()
+    def refused(method, url, body=None, *, deadline=None):
+        status, value = api(method, url, body, deadline=deadline)
+        if case == 'stop-diagnostic-stop-http' and url.endswith('/rulesets/24406998'):
+            return 403, {'raw_body': 'private-sentinel'}
+        if case == 'stop-diagnostic-http' and url.endswith('/rulesets/24406997'):
+            return 404, {'raw_body': 'private-sentinel'}
+        if url.endswith('/rulesets/24406998'):
+            value = dict(value, raw_body='private-sentinel')
+            value.pop('bypass_actors')
+        return status, value
+    result = probe.probe_retained_stop(dict(manifest, contract=probe.CONTRACT), refused,
+        now=lambda: datetime.now(timezone.utc))
+    result['contract'] = manifest['contract']  # wrong-contract cases must fail parent policy
+    if case == 'stop-diagnostic-unknown-code':
+        result['refusal_stage'] = 'private-sentinel'
+    elif case == 'stop-diagnostic-raw-status':
+        result['ruleset_http_status']['stop'] = 'private-sentinel'
+    elif case == 'stop-diagnostic-extra-status':
+        result['ruleset_http_status']['raw_body'] = 'private-sentinel'
+    elif case == 'stop-diagnostic-bool-status':
+        result['ruleset_http_status']['stop'] = True
+    elif case == 'stop-diagnostic-float-status':
+        result['ruleset_http_status']['stop'] = 200.0
+    elif case == 'stop-diagnostic-small-status':
+        result['ruleset_http_status']['stop'] = 99
+    elif case == 'stop-diagnostic-large-status':
+        result['ruleset_http_status']['stop'] = 600
+    elif case == 'stop-diagnostic-missing-stage':
+        result.pop('refusal_stage')
+    elif case == 'stop-diagnostic-missing-status':
+        result.pop('ruleset_http_status')
+    elif case == 'stop-diagnostic-http-200':
+        result['refusal_stage'] = 'occurrence_ruleset_http'
+    elif case == 'stop-diagnostic-wrong-outcome':
+        result['outcome'] = 'DEADLINE_EXPIRED'
+    elif case == 'stop-diagnostic-nonzero-operations':
+        result['patch_attempt_count'] = 1
+    elif case == 'stop-diagnostic-claimed':
+        result['claim'] = {'occurrence_id': manifest['occurrence_id'], 'source_sha': manifest['source_sha'],
+            'run_id': manifest['run_id'], 'attempt': 1,
+            'ref': 'refs/tags/idyll-cloud-q-occurrence/' + manifest['occurrence_id'], 'tag_sha': '2' * 40}
+elif case == 'dispatch':
     result = dict(empty_receipt('DISPATCH_CONFIRMED'), contract=manifest['contract'],
         source_attempt_count=0, source_action_count=0, github_attempt_count=4, github_action_count=4,
         dispatch_attempt_count=1, dispatch_status=200, target_run_id='987',

@@ -22,6 +22,53 @@ def payload_and_deadline(seconds=0.7):
 
 
 class ExecutorTests(unittest.TestCase):
+    def test_real_probe_ruleset_refusal_and_http_stage_survive_supervised_ipc(self):
+        fixture = str(Path(__file__).parent / 'fixtures' / 'executor_frames.py')
+        for case, stage, statuses, count in (
+                ('stop-diagnostic', 'stop_ruleset_bypass_missing', {'stop': 200, 'occurrence': 200}, 8),
+                ('stop-diagnostic-http', 'occurrence_ruleset_http', {'stop': 200, 'occurrence': 404}, 8),
+                ('stop-diagnostic-stop-http', 'stop_ruleset_http', {'stop': 403}, 7)):
+            with self.subTest(case=case):
+                payload, deadline = payload_and_deadline(1.5)
+                payload['mode'] = 'retained-stop'
+                payload['manifest']['contract'] = 'idyll-cloud-q-v1-retained-stop'
+                del payload['clickup_token']
+                result = run_supervised(payload, deadline, child_command=[sys.executable, '-B', fixture, case])
+                self.assertEqual((result['outcome'], result.get('refusal_stage'), result.get('ruleset_http_status'),
+                    result['github_attempt_count'], result['github_action_count'], result['source_attempt_count']),
+                    ('AUTHORITY_REFUSED', stage, statuses, count, count, 0))
+                self.assertEqual((result['patch_attempt_count'], result['delete_attempt_count']), (0, 0))
+                self.assertTrue(result['executor']['reaped'])
+                self.assertNotIn('private-sentinel', str(result))
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(result['executor']['pid'], 0)
+
+    def test_parent_refuses_unearned_or_unbounded_ruleset_diagnostics_and_wrong_contracts(self):
+        fixture = str(Path(__file__).parent / 'fixtures' / 'executor_frames.py')
+        cases = ['unknown-code', 'raw-status', 'extra-status', 'bool-status', 'float-status', 'small-status',
+                 'large-status', 'missing-stage', 'missing-status', 'http-200', 'wrong-outcome',
+                 'nonzero-operations', 'claimed']
+        for case, mode, contract in (
+                [(case, 'retained-stop', 'idyll-cloud-q-v1-retained-stop') for case in cases]
+                + [('contract-observation', 'observation', 'idyll-cloud-q-v1-observation'),
+                   ('contract-dispatch', 'dispatch', 'idyll-cloud-q-v1-case-dispatcher')]):
+            with self.subTest(case=case, mode=mode):
+                payload, deadline = payload_and_deadline(1.5)
+                payload['mode'], payload['manifest']['contract'] = mode, contract
+                if mode != 'observation':
+                    del payload['clickup_token']
+                if mode == 'dispatch':
+                    payload.update(case='retained-stop', run_number=2)
+                result = run_supervised(payload, deadline,
+                    child_command=[sys.executable, '-B', fixture, 'stop-diagnostic-' + case])
+                self.assertEqual(result['outcome'], 'UNKNOWN_CONTROL_RESULT')
+                self.assertNotIn('refusal_stage', result)
+                self.assertNotIn('ruleset_http_status', result)
+                self.assertNotIn('private-sentinel', str(result))
+                self.assertTrue(result['executor']['reaped'])
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(result['executor']['pid'], 0)
+
     def test_blocked_dns_is_killed_and_reaped_before_control_returns(self):
         command = [sys.executable, '-B', str(Path(__file__).parent / 'fixtures' / 'blocked_dns.py')]
         start = time.monotonic()

@@ -132,6 +132,18 @@ can pass. A generic422, wrong/changed/absent stop, lost response or duplicate cl
 fails closed. Unexpected PATCH success stops before DELETE. No source credential
 is accepted by the stop or dispatcher modes.
 
+Ruleset admission refusals expose only a fixed `refusal_stage` code and the
+observed `ruleset_http_status` integers for the stop and occurrence GETs. Codes
+distinguish HTTP, identity, rule types, ref scope, missing bypass metadata and
+returned bypass mismatches. Missing `bypass_actors` remains a refusal and is
+distinct from a returned empty list. Every existing protection check remains.
+The parent accepts these fields only for an attributed retained-stop
+`AUTHORITY_REFUSED` receipt at the seventh or eighth read, before any claim or
+probe write, with source counts zero. It rejects arbitrary codes, bodies,
+headers, URLs, malformed statuses, other outcomes and other contracts. The
+retired r4 receipt did not retain its status/protection details; its precise
+native cause remains unknown. Diagnostic readiness establishes no native PASS.
+
 Protected stop authority variables are `QUAL_STOP_ACCEPTED_CODE_SHA`,
 `QUAL_STOP_APPROVED_RUN_ID`, `QUAL_STOP_APPROVED_OCCURRENCE_ID`, `QUAL_STOP_DUE_AT`,
 `QUAL_STOP_CUTOFF_AT`, and `QUAL_STOP_APPROVED=idyll-cloud-q-v1-retained-stop`.

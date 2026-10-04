@@ -8,6 +8,18 @@ WORKFLOW_PATH = '.github/workflows/retained-stop-qualification.yml'
 ALTERNATE_SHA = '260d783935a0f47eed9222ec66f48e7502cb30b7'
 EXPECTED_STOP_SHA = 'b825e6c6bf5f175569138112e92cf132507cadfd'
 STOP_REF = 'refs/tags/idyll-cloud-q-stop-v1'
+RULESET_REFUSAL_STAGES = frozenset(kind + '_ruleset_' + check
+    for kind in ('stop', 'occurrence')
+    for check in ('http', 'identity', 'rules', 'scope', 'bypass_missing', 'bypass_mismatch'))
+
+
+class RulesetRefusal(ValueError):
+    """Fixed local classification only; provider bodies never become reasons."""
+    def __init__(self, stage):
+        if stage not in RULESET_REFUSAL_STAGES:
+            raise ValueError('Unrecognized protection classification')
+        self.stage = stage
+        super().__init__('Protection refused')
 
 
 def ruleset_refused(status, value, operation):
@@ -23,24 +35,36 @@ def ruleset_refused(status, value, operation):
 
 
 def verify_rulesets(stop, claims):
-    for rule, identity, restriction in ((stop, 24406998, {'creation', 'update', 'deletion'}),
-                                         (claims, 24406997, {'update', 'deletion'})):
+    for kind, rule, identity, restriction in (
+            ('stop', stop, 24406998, {'creation', 'update', 'deletion'}),
+            ('occurrence', claims, 24406997, {'update', 'deletion'})):
         if (not isinstance(rule, dict) or rule.get('id') != identity or rule.get('target') != 'tag'
-                or rule.get('enforcement') != 'active'
-                or {item.get('type') for item in rule.get('rules', [])} != restriction):
-            raise ValueError('Protection identity refused')
-    if (stop.get('conditions') != {'ref_name': {'include': [STOP_REF], 'exclude': []}}
-            or stop.get('bypass_actors') != [{'actor_id': 5, 'actor_type': 'RepositoryRole', 'bypass_mode': 'always'}]
-            or claims.get('conditions') != {'ref_name': {
+                or rule.get('enforcement') != 'active'):
+            raise RulesetRefusal(kind + '_ruleset_identity')
+        try:
+            types = {item.get('type') for item in rule.get('rules', [])}
+        except (TypeError, AttributeError):
+            raise RulesetRefusal(kind + '_ruleset_rules') from None
+        if types != restriction:
+            raise RulesetRefusal(kind + '_ruleset_rules')
+    for kind, rule, conditions, bypass in (
+            ('stop', stop, {'ref_name': {'include': [STOP_REF], 'exclude': []}},
+             [{'actor_id': 5, 'actor_type': 'RepositoryRole', 'bypass_mode': 'always'}]),
+            ('occurrence', claims, {'ref_name': {
                 'include': ['refs/tags/idyll-cloud-q-*', 'refs/tags/idyll-cloud-q-occurrence/*'],
-                'exclude': [STOP_REF]}}
-            or claims.get('bypass_actors') != []):
-        raise ValueError('Protection scope refused')
+                'exclude': [STOP_REF]}}, [])):
+        if rule.get('conditions') != conditions:
+            raise RulesetRefusal(kind + '_ruleset_scope')
+        if 'bypass_actors' not in rule:
+            raise RulesetRefusal(kind + '_ruleset_bypass_missing')
+        if rule.get('bypass_actors') != bypass:
+            raise RulesetRefusal(kind + '_ruleset_bypass_mismatch')
 
 
 def probe_retained_stop(manifest, transport, *, now, progress=lambda value: None):
     result = dict(empty_receipt('INVALID_MANIFEST'), contract=CONTRACT,
                   patch_attempt_count=0, delete_attempt_count=0)
+    ruleset_status = {}
     try:
         due, cutoff = validate_manifest(manifest, contract=CONTRACT)
         if manifest['source_sha'] == ALTERNATE_SHA or EXPECTED_STOP_SHA == ALTERNATE_SHA:
@@ -72,6 +96,13 @@ def probe_retained_stop(manifest, transport, *, now, progress=lambda value: None
             if status != 200:
                 raise ValueError('Native evidence absent')
             return value
+        def get_ruleset(kind, identity):
+            status, value = request('GET', REPO_URL + '/rulesets/' + str(identity))
+            if type(status) is int and 100 <= status <= 599:
+                ruleset_status[kind] = status
+            if status != 200:
+                raise RulesetRefusal(kind + '_ruleset_http')
+            return value
         def stop_identity():
             value = get('/git/ref/tags/idyll-cloud-q-stop-v1')
             if (value.get('ref') != STOP_REF or value.get('object', {}).get('type') != 'commit'
@@ -81,7 +112,7 @@ def probe_retained_stop(manifest, transport, *, now, progress=lambda value: None
         gate()
         result['outcome'] = 'AUTHORITY_REFUSED'
         verify_native_authority(request, manifest, workflow=WORKFLOW_PATH)
-        verify_rulesets(get('/rulesets/24406998'), get('/rulesets/24406997'))
+        verify_rulesets(get_ruleset('stop', 24406998), get_ruleset('occurrence', 24406997))
         if get('/git/commits/' + ALTERNATE_SHA).get('sha') != ALTERNATE_SHA:
             raise ValueError('Existing alternate commit not verified')
         before = stop_identity()
@@ -111,6 +142,11 @@ def probe_retained_stop(manifest, transport, *, now, progress=lambda value: None
         result.update(checks=checks, statuses={'patch': patch_status, 'delete': delete_status},
                       retained_stop=after)
         result['outcome'] = 'RETAINED_STOP_PASS' if all(checks.values()) else 'RETAINED_STOP_FAILED'
+    except RulesetRefusal as error:
+        # Publish only fully observed status slots, never infer omitted values.
+        expected = {'stop'} if error.stage == 'stop_ruleset_http' else {'stop', 'occurrence'}
+        if set(ruleset_status) == expected:
+            result.update(refusal_stage=error.stage, ruleset_http_status=ruleset_status)
     except TimeoutError:
         result['outcome'] = 'DEADLINE_EXPIRED'
     except Exception:

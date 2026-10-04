@@ -45,6 +45,83 @@ class StopAPI(ObservationAPI):
 
 
 class StopTests(unittest.TestCase):
+    def test_missing_stop_bypass_is_identified_after_eight_reads_without_any_write(self):
+        api, calls = StopAPI(), []
+        def hidden_bypass(method, url, body=None, *, deadline=None):
+            calls.append((method, url.removeprefix(probe.REPO_URL)))
+            status, value = api(method, url, body, deadline=deadline)
+            if url.endswith('/rulesets/24406998'):
+                value = dict(value, raw_private_detail='never-return-this')
+                value.pop('bypass_actors')
+            return status, value
+        result = probe.probe_retained_stop(dict(MANIFEST, contract=probe.CONTRACT),
+            hidden_bypass, now=lambda: NOW)
+        self.assertEqual((result['outcome'], result['github_attempt_count'], result['github_action_count'],
+            result['patch_attempt_count'], result['delete_attempt_count'], api.source_reads, len(api.tags)),
+            ('AUTHORITY_REFUSED', 8, 8, 0, 0, 0, 0))
+        self.assertEqual(calls, [('GET', path) for path in ('', '/git/ref/heads/codex/qualification',
+            '/environments/qualification-source', '/environments/qualification-source/deployment-branch-policies',
+            '/actions/runs/123', '/actions/runs/123/approvals', '/rulesets/24406998', '/rulesets/24406997')])
+        self.assertEqual(result.get('refusal_stage'), 'stop_ruleset_bypass_missing')
+        self.assertEqual(result.get('ruleset_http_status'), {'stop': 200, 'occurrence': 200})
+        self.assertNotIn('never-return-this', str(result))
+
+    def test_each_ruleset_predicate_has_a_fixed_code_and_missing_is_distinct_from_empty(self):
+        cases = [('stop', 'id', 0, 'identity'), ('occurrence', 'target', 'branch', 'identity'),
+            ('stop', 'enforcement', 'disabled', 'identity'), ('stop', 'rules', [], 'rules'),
+            ('occurrence', 'rules', None, 'rules'), ('stop', 'conditions', {}, 'scope'),
+            ('occurrence', 'conditions', {}, 'scope'), ('stop', 'bypass_actors', [], 'bypass_mismatch'),
+            ('occurrence', 'bypass_actors', 'missing', 'bypass_missing'),
+            ('occurrence', 'bypass_actors', None, 'bypass_mismatch'),
+            ('occurrence', 'bypass_actors', [{'actor_id': 5}], 'bypass_mismatch')]
+        for kind, field, changed, code in cases:
+            with self.subTest(kind=kind, field=field, changed=changed):
+                api = StopAPI()
+                path = '/rulesets/' + ('24406998' if kind == 'stop' else '24406997')
+                def altered(method, url, body=None, *, deadline=None):
+                    status, value = api(method, url, body, deadline=deadline)
+                    if url.endswith(path):
+                        value = dict(value)
+                        if changed == 'missing':
+                            value.pop(field)
+                        else:
+                            value[field] = changed
+                    return status, value
+                result = probe.probe_retained_stop(dict(MANIFEST, contract=probe.CONTRACT),
+                    altered, now=lambda: NOW)
+                self.assertEqual((result['outcome'], result['github_attempt_count'], result['refusal_stage']),
+                    ('AUTHORITY_REFUSED', 8, kind + '_ruleset_' + code))
+                self.assertEqual(result['ruleset_http_status'], {'stop': 200, 'occurrence': 200})
+                self.assertEqual((api.patch_count, api.delete_count, len(api.tags), api.source_reads), (0, 0, 0, 0))
+        result = probe.probe_retained_stop(dict(MANIFEST, contract=probe.CONTRACT), StopAPI(), now=lambda: NOW)
+        self.assertEqual((result['outcome'], result['github_attempt_count']), ('RETAINED_STOP_PASS', 19))
+        self.assertNotIn('refusal_stage', result)
+        self.assertNotIn('ruleset_http_status', result)
+
+    def test_ruleset_http_diagnostics_contain_only_observed_integer_statuses(self):
+        for kind, status in [('stop', 403), ('occurrence', 404), ('occurrence', 422),
+                              ('stop', True), ('stop', '403'), ('stop', 403.0), ('stop', 99), ('stop', 600)]:
+            with self.subTest(kind=kind, status=status):
+                api = StopAPI()
+                path = '/rulesets/' + ('24406998' if kind == 'stop' else '24406997')
+                def failed(method, url, body=None, *, deadline=None):
+                    if url.endswith(path):
+                        return status, {'raw_private_body': 'never-return-this'}
+                    return api(method, url, body, deadline=deadline)
+                result = probe.probe_retained_stop(dict(MANIFEST, contract=probe.CONTRACT),
+                    failed, now=lambda: NOW)
+                count = 7 if kind == 'stop' else 8
+                self.assertEqual((result['outcome'], result['github_attempt_count'], result['github_action_count'],
+                                  api.patch_count, api.delete_count), ('AUTHORITY_REFUSED', count, count, 0, 0))
+                if type(status) is int and 100 <= status <= 599:
+                    self.assertEqual(result['refusal_stage'], kind + '_ruleset_http')
+                    self.assertEqual(result['ruleset_http_status'],
+                                     {'stop': status} if kind == 'stop' else {'stop': 200, 'occurrence': status})
+                else:
+                    self.assertNotIn('ruleset_http_status', result)
+                    self.assertNotIn('refusal_stage', result)
+                self.assertNotIn('never-return-this', str(result))
+
     def test_new_code_attributes_its_claim_while_preserving_the_exact_old_stop(self):
         api = StopAPI()
         new_code = '2' * 40
