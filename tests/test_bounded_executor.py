@@ -9,7 +9,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from bounded_executor import run_supervised
+from bounded_executor import run_supervised, sanitize_result
 from test_source_observation import MANIFEST
 
 
@@ -22,16 +22,43 @@ def payload_and_deadline(seconds=0.7):
 
 
 class ExecutorTests(unittest.TestCase):
+    def test_old_receipts_stay_historical_and_v2_cannot_forge_witnessless_pass(self):
+        from test_retained_stop import StopAPI, NOW
+        import retained_stop_probe as probe
+        manifest = dict(MANIFEST, contract=probe.CONTRACT)
+        receipt = probe.probe_retained_stop(manifest, StopAPI(), now=lambda: NOW)
+        self.assertEqual(sanitize_result(receipt, manifest), receipt)
+        for key, changed in [('control_witness', None), ('github_attempt_count', 19),
+                             ('github_action_count', 19), ('source_attempt_count', 1)]:
+            bad = dict(receipt, **{key: changed})
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                sanitize_result(bad, manifest)
+        for changed in ({'raw_comment': 'private-sentinel'}, {'version': True}, {'reviewer_id': True},
+                        {'comment_sha256': 'x'}, {'observed_at': '2027-01-01T00:00:00Z'}):
+            with self.assertRaises(ValueError):
+                sanitize_result(dict(receipt, control_witness=dict(receipt['control_witness'], **changed)), manifest)
+        old = dict(receipt, contract=probe.LEGACY_CONTRACT, github_attempt_count=19, github_action_count=19)
+        old.pop('control_witness')
+        self.assertEqual(sanitize_result(old, dict(manifest, contract=probe.LEGACY_CONTRACT)), old)
+        old_diagnostic = {key: old[key] for key in ('contract', 'automatic_retry_allowed',
+            'occurrence_id', 'source_sha', 'run_id', 'attempt', 'source_attempt_count', 'source_action_count')}
+        old_diagnostic.update(outcome='AUTHORITY_REFUSED', github_attempt_count=8, github_action_count=8,
+            patch_attempt_count=0, delete_attempt_count=0, refusal_stage='stop_ruleset_bypass_missing',
+            ruleset_http_status={'stop': 200, 'occurrence': 200})
+        self.assertEqual(sanitize_result(old_diagnostic, dict(manifest, contract=probe.LEGACY_CONTRACT)), old_diagnostic)
+        with self.assertRaises(ValueError):
+            sanitize_result(dict(old, control_witness=receipt['control_witness']), dict(manifest, contract=probe.LEGACY_CONTRACT))
+
     def test_real_probe_ruleset_refusal_and_http_stage_survive_supervised_ipc(self):
         fixture = str(Path(__file__).parent / 'fixtures' / 'executor_frames.py')
         for case, stage, statuses, count in (
-                ('stop-diagnostic', 'stop_ruleset_bypass_missing', {'stop': 200, 'occurrence': 200}, 8),
+                ('stop-diagnostic', 'stop_ruleset_bypass_mismatch', {'stop': 200, 'occurrence': 200}, 8),
                 ('stop-diagnostic-http', 'occurrence_ruleset_http', {'stop': 200, 'occurrence': 404}, 8),
                 ('stop-diagnostic-stop-http', 'stop_ruleset_http', {'stop': 403}, 7)):
             with self.subTest(case=case):
                 payload, deadline = payload_and_deadline(1.5)
                 payload['mode'] = 'retained-stop'
-                payload['manifest']['contract'] = 'idyll-cloud-q-v1-retained-stop'
+                payload['manifest']['contract'] = 'idyll-cloud-q-v2-retained-stop'
                 del payload['clickup_token']
                 result = run_supervised(payload, deadline, child_command=[sys.executable, '-B', fixture, case])
                 self.assertEqual((result['outcome'], result.get('refusal_stage'), result.get('ruleset_http_status'),
@@ -49,7 +76,7 @@ class ExecutorTests(unittest.TestCase):
                  'large-status', 'missing-stage', 'missing-status', 'http-200', 'wrong-outcome',
                  'nonzero-operations', 'claimed']
         for case, mode, contract in (
-                [(case, 'retained-stop', 'idyll-cloud-q-v1-retained-stop') for case in cases]
+                [(case, 'retained-stop', 'idyll-cloud-q-v2-retained-stop') for case in cases]
                 + [('contract-observation', 'observation', 'idyll-cloud-q-v1-observation'),
                    ('contract-dispatch', 'dispatch', 'idyll-cloud-q-v1-case-dispatcher')]):
             with self.subTest(case=case, mode=mode):
@@ -131,7 +158,7 @@ class ExecutorTests(unittest.TestCase):
         fixture = str(Path(__file__).parent / 'fixtures' / 'executor_frames.py')
         for case, mode, contract, outcome in (
                 ('dispatch', 'dispatch', 'idyll-cloud-q-v1-case-dispatcher', 'DISPATCH_CONFIRMED'),
-                ('stop', 'retained-stop', 'idyll-cloud-q-v1-retained-stop', 'RETAINED_STOP_PASS')):
+                ('stop', 'retained-stop', 'idyll-cloud-q-v2-retained-stop', 'RETAINED_STOP_PASS')):
             with self.subTest(case=case):
                 payload, deadline = payload_and_deadline(1.5)
                 payload['mode'] = mode

@@ -39,7 +39,7 @@ def sanitize_result(value, manifest):
     allowed = set(COUNT_KEYS) | {'contract', 'outcome', 'automatic_retry_allowed',
         'occurrence_id', 'source_sha', 'run_id', 'attempt', 'claim', 'receipt', 'checks',
         'statuses', 'retained_stop', 'dispatch_attempt_count', 'patch_attempt_count', 'delete_attempt_count',
-        'dispatch_status', 'target_run_id', 'refusal_stage', 'ruleset_http_status'}
+        'dispatch_status', 'target_run_id', 'refusal_stage', 'ruleset_http_status', 'control_witness'}
     if (not isinstance(value, dict) or set(value) - allowed
             or value.get('outcome') not in OUTCOMES or value.get('contract') != manifest['contract']
             or value.get('automatic_retry_allowed') is not False):
@@ -48,15 +48,33 @@ def sanitize_result(value, manifest):
     for key in ('occurrence_id', 'source_sha', 'run_id', 'attempt'):
         if key in value and value[key] != manifest[key]:
             raise ValueError('IPC attribution refused')
+    from retained_stop_probe import CONTRACT as STOP_CONTRACT, LEGACY_CONTRACT, RULESET_REFUSAL_STAGES, WITNESS_REFUSAL_STAGES
+    v2 = manifest['contract'] == STOP_CONTRACT
+    if v2 and (any(value[key] != 0 for key in ('source_attempt_count', 'source_action_count'))
+               or any(value[key] is not None and value[key] > 24 for key in ('github_attempt_count', 'github_action_count'))
+               or {'receipt', 'dispatch_status', 'target_run_id', 'dispatch_attempt_count'} & set(value)):
+        raise ValueError('IPC source-free cap refused')
+    if 'control_witness' in value:
+        witness = value['control_witness']
+        if (not v2 or not isinstance(witness, dict) or set(witness) != {
+                'version', 'comment_sha256', 'observed_at', 'reviewer_id', 'verification_mode'}
+                or type(witness['version']) is not int or witness['version'] != 1
+                or type(witness['reviewer_id']) is not int or witness['reviewer_id'] != 13070764
+                or witness['verification_mode'] != 'owner_snapshot_native_approval'
+                or not isinstance(witness['comment_sha256'], str)
+                or re.fullmatch(r'[0-9a-f]{64}', witness['comment_sha256']) is None
+                or not isinstance(witness['observed_at'], str)
+                or not instant(manifest['due_at']) <= instant(witness['observed_at']) < instant(manifest['cutoff_at'])
+                or any(key not in value for key in ('occurrence_id', 'source_sha', 'run_id', 'attempt'))
+                or value['github_attempt_count'] is None or value['github_attempt_count'] < 8):
+            raise ValueError('IPC witness refused')
     if {'refusal_stage', 'ruleset_http_status'} & set(value):
-        from retained_stop_probe import CONTRACT as STOP_CONTRACT, RULESET_REFUSAL_STAGES
         stage, statuses = value.get('refusal_stage'), value.get('ruleset_http_status')
+        witness_refusal = v2 and isinstance(stage, str) and stage in WITNESS_REFUSAL_STAGES
         slots = {'stop'} if stage == 'stop_ruleset_http' else {'stop', 'occurrence'}
         count = 7 if stage == 'stop_ruleset_http' else 8
-        if (manifest['contract'] != STOP_CONTRACT or value['outcome'] != 'AUTHORITY_REFUSED'
-                or not isinstance(stage, str) or stage not in RULESET_REFUSAL_STAGES
-                or not isinstance(statuses, dict) or set(statuses) != slots
-                or any(type(status) is not int or not 100 <= status <= 599 for status in statuses.values())
+        if (manifest['contract'] not in (STOP_CONTRACT, LEGACY_CONTRACT) or value['outcome'] != 'AUTHORITY_REFUSED'
+                or not isinstance(stage, str) or not (witness_refusal or stage in RULESET_REFUSAL_STAGES)
                 or any(key not in value for key in ('occurrence_id', 'source_sha', 'run_id', 'attempt'))
                 or value['github_attempt_count'] != count or value['github_action_count'] != count
                 or value['source_attempt_count'] != 0 or value['source_action_count'] != 0
@@ -64,9 +82,15 @@ def sanitize_result(value, manifest):
                 or {'claim', 'receipt', 'checks', 'statuses', 'retained_stop', 'dispatch_attempt_count',
                     'dispatch_status', 'target_run_id'} & set(value)):
             raise ValueError('IPC protection diagnostic refused')
-        if (stage == 'stop_ruleset_http' and statuses['stop'] == 200
+        if witness_refusal:
+            if 'ruleset_http_status' in value or 'control_witness' in value:
+                raise ValueError('IPC witness diagnostic refused')
+        elif (not isinstance(statuses, dict) or set(statuses) != slots
+                or any(type(status) is not int or not 100 <= status <= 599 for status in statuses.values())
+                or stage == 'stop_ruleset_http' and statuses['stop'] == 200
                 or stage == 'occurrence_ruleset_http' and (statuses['stop'] != 200 or statuses['occurrence'] == 200)
-                or not stage.endswith('_http') and statuses != {'stop': 200, 'occurrence': 200}):
+                or not stage.endswith('_http') and statuses != {'stop': 200, 'occurrence': 200}
+                or v2 and not stage.endswith('_http') and 'control_witness' not in value):
             raise ValueError('IPC protection status refused')
     claim = value.get('claim')
     if claim is not None:
@@ -120,10 +144,13 @@ def sanitize_result(value, manifest):
             or value['source_attempt_count'] != 1 or value['source_action_count'] != 1):
         raise ValueError('Unattributed source success refused')
     if value['outcome'] in ('SOURCE_OBSERVED', 'RETAINED_STOP_PASS') and any(
-            claim.get(key) != manifest[key] for key in ('occurrence_id', 'source_sha', 'run_id', 'attempt')):
+            claim is None or claim.get(key) != manifest[key] for key in ('occurrence_id', 'source_sha', 'run_id', 'attempt')):
         raise ValueError('Wrong executor attribution refused')
     if value['outcome'] == 'RETAINED_STOP_PASS' and (
             claim is None or 'retained_stop' not in value
+            or manifest['contract'] not in (STOP_CONTRACT, LEGACY_CONTRACT)
+            or v2 and ('control_witness' not in value or value['github_attempt_count'] != 23
+                       or value['github_action_count'] != 23 or value.get('statuses') != {'patch': 422, 'delete': 422})
             or not all(value.get('checks', {}).values()) or len(value.get('checks', {})) != 3
             or value.get('patch_attempt_count') != 1 or value.get('delete_attempt_count') != 1
             or value['source_attempt_count'] != 0 or value['source_action_count'] != 0):

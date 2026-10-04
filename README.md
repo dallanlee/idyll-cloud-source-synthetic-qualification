@@ -100,13 +100,15 @@ these identities/revision, description equality/hash, occurrence/run attribution
 operation counts and times. Response bodies, descriptions, headers and error text
 are never printed. The original `SOURCE_CONFIGURED = False` remains unchanged.
 
-The new observation, retained-stop and dispatcher workflows are all in `drafts/`.
-`STOP_PROBE_CONFIGURED` and `DISPATCH_CONFIGURED` also default to literal False.
-Imports and inactive entrypoints do not consume credentials or contact providers.
+The observation workflow remains in `drafts/` with its source flag False. The
+source-free retained-stop and dispatcher workflows were published for earlier
+finite cases; their literals are True but their native workflows remain disabled
+until a separately selected case. Imports and unbound entrypoints do not consume
+credentials or contact providers.
 The new dispatcher has its own fresh native run-number intent; none of the old
 consumed control or approval cases is reused.
 
-For an independently reviewed **source-free activation variant**, change only
+The earlier independently reviewed **source-free activation variant** changed only
 `STOP_PROBE_CONFIGURED = False` to `True` in `retained_stop_probe.py` and
 `DISPATCH_CONFIGURED = False` to `True` in `finite_case_dispatcher.py`, and move
 `drafts/retained-stop-qualification.yml` and
@@ -132,21 +134,17 @@ can pass. A generic422, wrong/changed/absent stop, lost response or duplicate cl
 fails closed. Unexpected PATCH success stops before DELETE. No source credential
 is accepted by the stop or dispatcher modes.
 
-Ruleset admission refusals expose only a fixed `refusal_stage` code and the
-observed `ruleset_http_status` integers for the stop and occurrence GETs. Codes
-distinguish HTTP, identity, rule types, ref scope, missing bypass metadata and
-returned bypass mismatches. Missing `bypass_actors` remains a refusal and is
-distinct from a returned empty list. Every existing protection check remains.
-The parent accepts these fields only for an attributed retained-stop
-`AUTHORITY_REFUSED` receipt at the seventh or eighth read, before any claim or
-probe write, with source counts zero. It rejects arbitrary codes, bodies,
-headers, URLs, malformed statuses, other outcomes and other contracts. The
-retired r4 receipt did not retain its status/protection details; its precise
-native cause remains unknown. Diagnostic readiness establishes no native PASS.
+Historical v1 ruleset diagnostics retain their fixed `refusal_stage` and observed
+`ruleset_http_status` integer fields. Those receipts remain parseable for audit;
+the current executor does not execute v1. R5 is consumed and cannot be replayed.
+V2 admission diagnostics retain the same bounded shape for visible protection
+failures and add `witness_malformed`, `witness_binding`, and `witness_freshness`
+at exactly eight completed reads, before claim or probe writes. Provider bodies,
+comments and arbitrary fields never enter job evidence.
 
 Protected stop authority variables are `QUAL_STOP_ACCEPTED_CODE_SHA`,
 `QUAL_STOP_APPROVED_RUN_ID`, `QUAL_STOP_APPROVED_OCCURRENCE_ID`, `QUAL_STOP_DUE_AT`,
-`QUAL_STOP_CUTOFF_AT`, and `QUAL_STOP_APPROVED=idyll-cloud-q-v1-retained-stop`.
+`QUAL_STOP_CUTOFF_AT`, and `QUAL_STOP_APPROVED=idyll-cloud-q-v2-retained-stop`.
 The manual input is only the exact occurrence. Bind the new bot run ID after
 dispatch and before its owner approval. `qualification-source` supplies the
 existing native review gate; this source-free workflow references no source
@@ -213,3 +211,78 @@ validation, finite/native admission, stop arrival, immutable claim reconciliatio
 and rule-refusal/readback semantics. Linux `prctl` and hosted Actions behavior are
 not established by the macOS subprocess tests. No test loads real credentials,
 uses an existing CLI session, calls a provider, dispatches or starts a service.
+
+## Prepared v2 owner-attested verification
+
+This local implementation changes hidden-roster verification to an explicit
+owner attestation. The job keeps contents:write/actions:read, checks every visible
+predicate and any returned bypass roster, and requires the authenticated native
+approval comment even when all rosters are visible. The source observer only
+returns its existing authenticated approval record to callers; its admission,
+source behavior and literal False flag are unchanged. Original job-only complete
+roster observation remains unsatisfied by v2.
+
+The separately named `.local/01a108c7-owner-witness/controller.py` preserves all
+old helpers and receipts. It is PREPARED, with no new occurrence, native run
+number, accepted future source commit or window selected. Running it in that
+state exits without a provider call. A future reviewed `acceptance.json` must
+pin its bytes, every tracked source file, policy digest and exact clean source
+commit; a separately selected `selected-native-case.json` pins the acceptance
+record and complete consumed native baseline. No example grants those rights.
+The owner must still perform the native Run and Approve actions; the controller
+neither dispatches nor approves. No service or new credential is introduced.
+
+Before emission, the controller checks the full three rulesets, protected
+environment and deployment branches, accepted code ref and retained stop in
+seven sequential reads completed within 10 seconds. At least 45 seconds must
+remain in the existing 120-second window. It writes and displays one immutable
+ASCII line for the owner to paste into the native approval comment. The line
+begins `idyll-control-witness-v1 ` and contains canonical compact JSON, capped
+at 1536 bytes, binding exact repository/environment/reviewer/workflow, run,
+attempt, occurrence, code, due/cutoff, observation time, controller digest and
+compiled policy digest. No regeneration or extension is allowed after emission.
+The job syntax-checks the controller digest as owner-attested provenance; only
+the local acceptance record pins it. This avoids a controller/source hash cycle.
+
+The job's six native reads authenticate the sole approval. After two protection
+reads, it validates the comment and visible projections. Witness age must be
+0–60 seconds, within the manifest window, and is rechecked before **every**
+mutation, including claim creation. Immediately before each stop mutation, two
+additional ruleset reads must equal the initial visible projection. The existing
+stop identity read precedes PATCH; its post-PATCH read must remain unchanged
+before DELETE is allowed. A generic or uncertain PATCH refusal cannot admit DELETE.
+There are 23 nominal job calls, capped at 24, without retries. Source attempts
+and actions stay zero. V2 PASS requires an exact allowlisted `control_witness`
+summary, including comment digest, observation time, reviewer, version and
+`owner_snapshot_native_approval` mode; legacy PASS cannot supply v2 evidence.
+
+The controller has separate bounded phases: preflight 15, staging 198, finite
+variable creation 24, observation/monitoring 103, and reserved retirement 40:
+**380 explicit owner API operations/gh invocations maximum**, not a claim about
+total HTTP hops internal to gh/download redirects. Preflight adds seven complete
+policy reads to the existing eight. The final before/after batches add seven
+reads each; post-run approval comparison adds one. Monitoring allows at most
+40 inventory pairs; phase exhaustion refuses immediately. The monitor cap also
+bounds repeated pending-approval reads. Each gh subprocess has an eight-second
+maximum, capped by remaining staging/finite time; output is capped at 1 MiB.
+Receipt logs use the exact validated job-ID endpoint, with no run-view discovery,
+raw log persistence or URL/header forwarding. Retirement is separately reserved,
+up to 40 eight-second calls, and checks owned variable values before deletion.
+A cleanup error is retained, and independent GET-only reconciliation is required.
+
+Complete owner after-checks, exact approval/comment/receipt digest, local
+controller pin and immutable claim readback must agree before even provisional
+owner checks pass. Native success remains pending independent retirement
+reconciliation. Missing/changed after evidence cannot qualify a job PASS.
+
+GitHub authenticates the approving account, not the truth of the owner's
+statement or which controller bytes ran. A canonical false assertion can pass
+job validation. Equal before/after snapshots cannot detect a privileged hidden
+change followed by restoration. A witness is neither a heartbeat nor revocation;
+controller death after approval does not cancel admitted work. Local arithmetic
+and fake-transport tests establish no human copy/paste latency, native comment
+round-trip, hosted cessation, source read, unattended loop or production adoption.
+Those gates remain separately unqualified.
+
+Offline commands: `python3 -B -m unittest discover -s tests` and
+`python3 -B .local/01a108c7-owner-witness/test_controller.py`.

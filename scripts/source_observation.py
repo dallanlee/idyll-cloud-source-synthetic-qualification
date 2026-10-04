@@ -76,6 +76,8 @@ def verify_native_authority(request, manifest, *, workflow=WORKFLOW_PATH):
                != [(23353662059, 'qualification-source')]):
         raise ValueError('Native authority refused')
 
+    return approvals[0]
+
 
 def empty_receipt(outcome):
     return {'contract': CONTRACT, 'outcome': outcome,

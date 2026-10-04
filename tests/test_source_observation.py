@@ -58,6 +58,15 @@ class ObservationAPI(ProviderAPI):
 
 
 class ObservationTests(unittest.TestCase):
+    def test_helper_returns_only_after_native_approval_authentication(self):
+        api = ObservationAPI()
+        api.approvals[0]['comment'] = 'not a witness: source semantics stay unchanged'
+        self.assertEqual(observer.verify_native_authority(api, MANIFEST), api.approvals[0])
+        self.assertEqual(len(api.calls), 6)
+        api.approvals[0]['user']['id'] = 1
+        with self.assertRaises(ValueError):
+            observer.verify_native_authority(api, MANIFEST)
+
     def test_capture_actual_raw_revision_with_only_the_allowed_evidence(self):
         evidence = observer.validate_task(200, TASK)
         self.assertEqual(evidence, {

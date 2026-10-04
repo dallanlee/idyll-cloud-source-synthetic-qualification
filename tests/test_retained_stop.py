@@ -1,5 +1,8 @@
 """New source-free retained-stop probe boundary; no consumed run reuse."""
 import sys
+import json
+import copy
+from datetime import timedelta
 import unittest
 from pathlib import Path
 
@@ -11,6 +14,8 @@ from test_source_observation import ObservationAPI, MANIFEST, NOW, SHA
 class StopAPI(ObservationAPI):
     def __init__(self, *, generic=False, changed=False):
         super().__init__()
+        self.approvals[0]['comment'] = probe.make_control_witness(dict(MANIFEST, contract=probe.CONTRACT),
+            observed_at=NOW.isoformat(), controller_sha256='a' * 64)
         self.run['path'] = '.github/workflows/retained-stop-qualification.yml'
         self.refs['refs/tags/idyll-cloud-q-stop-v1'] = {
             'ref': 'refs/tags/idyll-cloud-q-stop-v1', 'object': {
@@ -45,14 +50,14 @@ class StopAPI(ObservationAPI):
 
 
 class StopTests(unittest.TestCase):
-    def test_missing_stop_bypass_is_identified_after_eight_reads_without_any_write(self):
+    def test_visible_stop_bypass_mismatch_is_identified_after_eight_reads_without_any_write(self):
         api, calls = StopAPI(), []
         def hidden_bypass(method, url, body=None, *, deadline=None):
             calls.append((method, url.removeprefix(probe.REPO_URL)))
             status, value = api(method, url, body, deadline=deadline)
             if url.endswith('/rulesets/24406998'):
                 value = dict(value, raw_private_detail='never-return-this')
-                value.pop('bypass_actors')
+                value['bypass_actors'] = []
             return status, value
         result = probe.probe_retained_stop(dict(MANIFEST, contract=probe.CONTRACT),
             hidden_bypass, now=lambda: NOW)
@@ -62,7 +67,7 @@ class StopTests(unittest.TestCase):
         self.assertEqual(calls, [('GET', path) for path in ('', '/git/ref/heads/codex/qualification',
             '/environments/qualification-source', '/environments/qualification-source/deployment-branch-policies',
             '/actions/runs/123', '/actions/runs/123/approvals', '/rulesets/24406998', '/rulesets/24406997')])
-        self.assertEqual(result.get('refusal_stage'), 'stop_ruleset_bypass_missing')
+        self.assertEqual(result.get('refusal_stage'), 'stop_ruleset_bypass_mismatch')
         self.assertEqual(result.get('ruleset_http_status'), {'stop': 200, 'occurrence': 200})
         self.assertNotIn('never-return-this', str(result))
 
@@ -71,7 +76,6 @@ class StopTests(unittest.TestCase):
             ('stop', 'enforcement', 'disabled', 'identity'), ('stop', 'rules', [], 'rules'),
             ('occurrence', 'rules', None, 'rules'), ('stop', 'conditions', {}, 'scope'),
             ('occurrence', 'conditions', {}, 'scope'), ('stop', 'bypass_actors', [], 'bypass_mismatch'),
-            ('occurrence', 'bypass_actors', 'missing', 'bypass_missing'),
             ('occurrence', 'bypass_actors', None, 'bypass_mismatch'),
             ('occurrence', 'bypass_actors', [{'actor_id': 5}], 'bypass_mismatch')]
         for kind, field, changed, code in cases:
@@ -94,7 +98,7 @@ class StopTests(unittest.TestCase):
                 self.assertEqual(result['ruleset_http_status'], {'stop': 200, 'occurrence': 200})
                 self.assertEqual((api.patch_count, api.delete_count, len(api.tags), api.source_reads), (0, 0, 0, 0))
         result = probe.probe_retained_stop(dict(MANIFEST, contract=probe.CONTRACT), StopAPI(), now=lambda: NOW)
-        self.assertEqual((result['outcome'], result['github_attempt_count']), ('RETAINED_STOP_PASS', 19))
+        self.assertEqual((result['outcome'], result['github_attempt_count']), ('RETAINED_STOP_PASS', 23))
         self.assertNotIn('refusal_stage', result)
         self.assertNotIn('ruleset_http_status', result)
 
@@ -129,6 +133,9 @@ class StopTests(unittest.TestCase):
         api.refs['refs/heads/codex/qualification']['object']['sha'] = new_code
         api.run['head_sha'] = new_code
         api.refs['refs/tags/idyll-cloud-q-stop-v1']['object']['sha'] = old_stop
+        api.approvals[0]['comment'] = probe.make_control_witness(
+            dict(MANIFEST, contract=probe.CONTRACT, source_sha=new_code),
+            observed_at=NOW.isoformat(), controller_sha256='a' * 64)
         snapshots = []
         def recorded(method, url, body=None, *, deadline=None):
             status, value = api(method, url, body, deadline=deadline)
@@ -144,7 +151,7 @@ class StopTests(unittest.TestCase):
 
     def test_retained_stop_rule_refusals_are_read_back_with_the_actual_job_boundary(self):
         api = StopAPI()
-        manifest = dict(MANIFEST, contract='idyll-cloud-q-v1-retained-stop')
+        manifest = dict(MANIFEST, contract=probe.CONTRACT)
         result = probe.probe_retained_stop(manifest, api, now=lambda: NOW)
         self.assertEqual((result['outcome'], api.patch_count, api.delete_count, api.source_reads),
                          ('RETAINED_STOP_PASS', 1, 1, 0))
@@ -170,6 +177,110 @@ class StopTests(unittest.TestCase):
         repeated = probe.probe_retained_stop(manifest, api, now=lambda: NOW)
         self.assertEqual((repeated['outcome'], api.patch_count, api.delete_count), ('ALREADY_CLAIMED', 1, 1))
 
+
+
+class WitnessTests(unittest.TestCase):
+    def test_hidden_rosters_need_authenticated_comment_but_owner_must_see_them(self):
+        api = StopAPI()
+        def hidden(method, url, body=None, *, deadline=None):
+            status, value = api(method, url, body, deadline=deadline)
+            if '/rulesets/' in url:
+                value.pop('bypass_actors')
+            return status, value
+        manifest = dict(MANIFEST, contract=probe.CONTRACT)
+        result = probe.probe_retained_stop(manifest, hidden, now=lambda: NOW)
+        self.assertEqual((result['outcome'], result['github_attempt_count'], api.source_reads),
+                         ('RETAINED_STOP_PASS', 23, 0))
+        api = StopAPI()
+        api.approvals[0].pop('comment')
+        result = probe.probe_retained_stop(manifest, api, now=lambda: NOW)
+        self.assertEqual((result['refusal_stage'], result['github_action_count'], len(api.tags)),
+                         ('witness_malformed', 8, 0))
+        with self.assertRaises(ValueError):
+            probe.project_ruleset({'id': 24406998}, 'stop')
+
+    def test_every_binding_and_malformed_input_refuses_before_claim(self):
+        manifest = dict(MANIFEST, contract=probe.CONTRACT)
+        original = StopAPI().approvals[0]['comment']
+        parsed = json.loads(original[len(probe.WITNESS_PREFIX):])
+        values = [None, [], 'private-sentinel', original + ' ', original + 'x' * 1536,
+                  original.replace('"attempt":1', '"attempt":1,"attempt":1')]
+        for key, changed in [('attempt', True), ('attempt', 2), ('environment_id', 1),
+                ('repository_id', 1), ('reviewer_id', 1), ('workflow_id', 1),
+                ('occurrence_id', probe.CONSUMED_R5), ('source_sha', 'f' * 40), ('run_id', '124'),
+                ('run_id', '0'), ('run_id', '0123'), ('run_id', '9' * 19),
+                ('controller_sha256', 'A' * 64), ('policy_sha256', 'f' * 64),
+                ('observed_at', '2026-10-04T00:00:11Z'), ('due_at', '2026-10-04T00:00:01Z'),
+                ('extra', 'private-sentinel')]:
+            values.append(probe.WITNESS_PREFIX + probe.canonical(dict(parsed, **{key: changed})))
+        for comment in values:
+            with self.subTest(comment=comment):
+                api = StopAPI()
+                api.approvals[0]['comment'] = comment
+                result = probe.probe_retained_stop(manifest, api, now=lambda: NOW)
+                self.assertEqual((result['outcome'], result['github_action_count'], len(api.tags),
+                                  api.patch_count, api.delete_count, api.source_reads),
+                                 ('AUTHORITY_REFUSED', 8, 0, 0, 0, 0))
+                self.assertIn(result['refusal_stage'], probe.WITNESS_REFUSAL_STAGES)
+                self.assertNotIn('private-sentinel', str(result))
+
+    def test_stale_witness_and_visible_change_stop_each_remaining_mutation(self):
+        manifest = dict(MANIFEST, contract=probe.CONTRACT)
+        for boundary in ('claim', 'patch', 'delete'):
+            for stale in (True, False):
+                with self.subTest(boundary=boundary, stale=stale):
+                    api, clock, reads = StopAPI(), [NOW], [0]
+                    def changed(method, url, body=None, *, deadline=None):
+                        status, value = api(method, url, body, deadline=deadline)
+                        if url.endswith('/rulesets/24406998'):
+                            reads[0] += 1
+                            if not stale and reads[0] == {'claim': 1, 'patch': 2, 'delete': 3}[boundary]:
+                                value['enforcement'] = 'disabled'
+                        if stale and (boundary == 'claim' and '/git/commits/' in url or
+                                     boundary == 'patch' and reads[0] == 2 or
+                                     boundary == 'delete' and reads[0] == 3):
+                            clock[0] = NOW + timedelta(seconds=61)
+                        return status, value
+                    result = probe.probe_retained_stop(manifest, changed, now=lambda: clock[0])
+                    self.assertNotEqual(result['outcome'], 'RETAINED_STOP_PASS')
+                    self.assertEqual((api.patch_count, api.delete_count),
+                                     (1 if boundary == 'delete' else 0, 0))
+                    self.assertEqual(api.source_reads, 0)
+
+    def test_policy_is_strict_and_boundary_snapshots_cannot_detect_hidden_restore(self):
+        api = StopAPI()
+        stop = api('GET', probe.REPO_URL + '/rulesets/24406998')[1]
+        for rules in ([{'type': 'creation'}, {'type': 'creation'}, {'type': 'update'}, {'type': 'deletion'}],
+                      [{'type': 'creation', 'parameters': {}}, {'type': 'update'}, {'type': 'deletion'}]):
+            with self.assertRaises(ValueError):
+                probe.project_ruleset(dict(stop, rules=rules), 'stop')
+        missing = dict(stop)
+        missing.pop('bypass_actors')
+        with self.assertRaises(ValueError):
+            probe.project_ruleset(missing, 'stop')
+        self.assertNotIn('bypass_actors', probe.project_ruleset(missing, 'stop', allow_hidden=True))
+        # A malicious owner statement is canonical; hash correctness cannot prove its truth.
+        manifest = dict(MANIFEST, contract=probe.CONTRACT)
+        false_statement = probe.make_control_witness(manifest, observed_at=NOW.isoformat(), controller_sha256='f' * 64)
+        self.assertEqual(probe.verify_control_witness(false_statement, manifest, now=NOW)['version'], 1)
+        before = probe.project_ruleset(missing, 'stop', allow_hidden=True)
+        hidden_intermediate = dict(stop, bypass_actors=[])
+        after = probe.project_ruleset(missing, 'stop', allow_hidden=True)
+        self.assertNotEqual(hidden_intermediate, stop)
+        self.assertEqual(before, after)  # this unobserved change/restore is explicitly NOT detected
+
+    def test_versioned_contract_and_canonical_bound_witness(self):
+        self.assertEqual(probe.CONTRACT, 'idyll-cloud-q-v2-retained-stop')
+        manifest = dict(MANIFEST, contract=probe.CONTRACT)
+        comment = probe.make_control_witness(manifest, observed_at=NOW.isoformat(), controller_sha256='a' * 64)
+        summary = probe.verify_control_witness(comment, manifest, now=NOW)
+        self.assertEqual(summary['verification_mode'], 'owner_snapshot_native_approval')
+        self.assertEqual(summary['reviewer_id'], 13070764)
+        for bad in (None, comment + ' ', comment.replace('"attempt":1', '"attempt":true'),
+                    comment.replace('"attempt":1', '"attempt":1,"attempt":1'),
+                    comment.replace('"run_id":"123"', '"run_id":"124"')):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                probe.verify_control_witness(bad, manifest, now=NOW)
 
 if __name__ == '__main__':
     unittest.main()

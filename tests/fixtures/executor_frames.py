@@ -27,6 +27,8 @@ if case.startswith('stop-diagnostic'):
     import retained_stop_probe as probe
     from test_retained_stop import StopAPI
     api = StopAPI()
+    api.approvals[0]['comment'] = probe.make_control_witness(dict(manifest, contract=probe.CONTRACT),
+        observed_at=datetime.now(timezone.utc).isoformat(), controller_sha256='a' * 64)
     def refused(method, url, body=None, *, deadline=None):
         status, value = api(method, url, body, deadline=deadline)
         if case == 'stop-diagnostic-stop-http' and url.endswith('/rulesets/24406998'):
@@ -35,7 +37,7 @@ if case.startswith('stop-diagnostic'):
             return 404, {'raw_body': 'private-sentinel'}
         if url.endswith('/rulesets/24406998'):
             value = dict(value, raw_body='private-sentinel')
-            value.pop('bypass_actors')
+            value['bypass_actors'] = []
         return status, value
     result = probe.probe_retained_stop(dict(manifest, contract=probe.CONTRACT), refused,
         now=lambda: datetime.now(timezone.utc))
@@ -76,12 +78,16 @@ elif case == 'dispatch':
 elif case == 'stop':
     claim = result['claim']
     result = dict(empty_receipt('RETAINED_STOP_PASS'), contract=manifest['contract'],
-        source_attempt_count=0, source_action_count=0, github_attempt_count=19, github_action_count=19,
+        source_attempt_count=0, source_action_count=0, github_attempt_count=23, github_action_count=23,
         patch_attempt_count=1, delete_attempt_count=1, claim=claim,
         checks={'patch_ruleset_refused': True, 'delete_ruleset_refused': True, 'stop_retained': True},
         statuses={'patch': 422, 'delete': 422}, retained_stop={
             'ref': 'refs/tags/idyll-cloud-q-stop-v1', 'sha': 'b825e6c6bf5f175569138112e92cf132507cadfd', 'type': 'commit'},
         **{key: manifest[key] for key in ('occurrence_id', 'source_sha', 'run_id', 'attempt')})
+    from retained_stop_probe import make_control_witness, verify_control_witness
+    now = datetime.now(timezone.utc)
+    result['control_witness'] = verify_control_witness(make_control_witness(manifest,
+        observed_at=now.isoformat(), controller_sha256='a' * 64), manifest, now=now)
 elif case == 'raw-extra':
     result['raw_body'] = 'private-sentinel'
 elif case == 'unearned-success':
