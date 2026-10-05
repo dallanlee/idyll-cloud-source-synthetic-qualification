@@ -170,6 +170,59 @@ class ExecutorTests(unittest.TestCase):
                 self.assertEqual((result['outcome'], result['source_attempt_count'], result['executor']['reaped']),
                                  (outcome, 0, True))
 
+    def test_supervisor_enforces_exact_case_windows_and_rejects_unauthorized_durations(self):
+        fixture = str(Path(__file__).parent / 'fixtures' / 'executor_frames.py')
+        now = datetime.now(timezone.utc)
+
+        # Retained-stop: 601s rejected before subprocess
+        payload, _ = payload_and_deadline(1.5)
+        payload['mode'] = 'retained-stop'
+        payload['manifest']['contract'] = 'idyll-cloud-q-v2-retained-stop'
+        payload['manifest']['due_at'] = (now - timedelta(seconds=1)).isoformat()
+        payload['manifest']['cutoff_at'] = (now + timedelta(seconds=601)).isoformat()
+        del payload['clickup_token']
+        cutoff = datetime.fromisoformat(payload['manifest']['cutoff_at'])
+        res = run_supervised(payload, cutoff, child_command=[sys.executable, '-B', fixture, 'stop'])
+        self.assertEqual(res['outcome'], 'UNKNOWN_CONTROL_RESULT')
+
+        # Dispatch with case='observation' and 121s rejected before subprocess
+        payload, _ = payload_and_deadline(1.5)
+        payload['mode'] = 'dispatch'
+        payload['manifest']['contract'] = 'idyll-cloud-q-v1-case-dispatcher'
+        payload['manifest']['due_at'] = (now - timedelta(seconds=1)).isoformat()
+        payload['manifest']['cutoff_at'] = (now + timedelta(seconds=121)).isoformat()
+        payload.update(case='observation', run_number=2)
+        del payload['clickup_token']
+        cutoff = datetime.fromisoformat(payload['manifest']['cutoff_at'])
+        res = run_supervised(payload, cutoff, child_command=[sys.executable, '-B', fixture, 'dispatch'])
+        self.assertEqual(res['outcome'], 'UNKNOWN_CONTROL_RESULT')
+
+        # Observation with 121s rejected before subprocess
+        payload, _ = payload_and_deadline(1.5)
+        payload['manifest']['due_at'] = (now - timedelta(seconds=1)).isoformat()
+        payload['manifest']['cutoff_at'] = (now + timedelta(seconds=121)).isoformat()
+        cutoff = datetime.fromisoformat(payload['manifest']['cutoff_at'])
+        res = run_supervised(payload, cutoff, child_command=[sys.executable, '-B', fixture, 'success'])
+        self.assertEqual(res['outcome'], 'UNKNOWN_CONTROL_RESULT')
+
+        # Dispatch with wrongcase rejected before subprocess
+        payload, _ = payload_and_deadline(1.5)
+        payload['mode'] = 'dispatch'
+        payload['manifest']['contract'] = 'idyll-cloud-q-v1-case-dispatcher'
+        payload['manifest']['due_at'] = (now - timedelta(seconds=1)).isoformat()
+        payload['manifest']['cutoff_at'] = (now + timedelta(seconds=60)).isoformat()
+        payload.update(case='wrongcase', run_number=2)
+        del payload['clickup_token']
+        cutoff = datetime.fromisoformat(payload['manifest']['cutoff_at'])
+        res = run_supervised(payload, cutoff, child_command=[sys.executable, '-B', fixture, 'dispatch'])
+        self.assertEqual(res['outcome'], 'UNKNOWN_CONTROL_RESULT')
+
+        # Exact cutoff: cutoff already reached raises TimeoutError -> DEADLINE_EXPIRED
+        payload, deadline = payload_and_deadline(1.5)
+        expired_cutoff = datetime.now(timezone.utc) - timedelta(seconds=1)
+        res = run_supervised(payload, expired_cutoff, child_command=[sys.executable, '-B', fixture, 'success'])
+        self.assertEqual(res['outcome'], 'DEADLINE_EXPIRED')
+
 
 if __name__ == '__main__':
     unittest.main()

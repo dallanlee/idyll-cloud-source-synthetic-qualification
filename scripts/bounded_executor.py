@@ -193,7 +193,8 @@ def run_supervised(payload, cutoff, *, child_command=None):
                 raise ValueError('Dispatcher context refused')
         if set(payload) != expected:
             raise ValueError('Executor input refused')
-        due, admitted_cutoff = validate_manifest(manifest, contract=contracts[mode])
+        case = payload.get('case') if mode == 'dispatch' else 'retained-stop' if mode == 'retained-stop' else 'observation'
+        due, admitted_cutoff = validate_manifest(manifest, contract=contracts[mode], case=case)
         if cutoff != admitted_cutoff or not due <= datetime.now(timezone.utc) < cutoff:
             raise TimeoutError('Finite deadline expired')
         # Pure validation before nonblocking IPC; no credential fallback.

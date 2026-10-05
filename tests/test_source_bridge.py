@@ -409,5 +409,18 @@ class SourceBridgeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ProtectedTransport('fake-github-key', 'pk_fake-personal-token')
 
+    def test_source_bridge_rejects_121_seconds_and_accepts_120_seconds(self):
+        service = Services()
+        # 120s is accepted (reaches claim or source)
+        m_120 = dict(MANIFEST, cutoff_at='2026-10-02T22:02:00Z')
+        res_120 = execute(m_120, service, now=lambda: datetime(2026, 10, 2, 22, 0, 10, tzinfo=timezone.utc))
+        self.assertNotEqual(res_120['outcome'], 'INVALID_MANIFEST')
+
+        # 121s is rejected with INVALID_MANIFEST
+        m_121 = dict(MANIFEST, cutoff_at='2026-10-02T22:02:01Z')
+        res_121 = execute(m_121, service, now=lambda: datetime(2026, 10, 2, 22, 0, 10, tzinfo=timezone.utc))
+        self.assertEqual(res_121['outcome'], 'INVALID_MANIFEST')
+
+
 if __name__ == '__main__':
     unittest.main()

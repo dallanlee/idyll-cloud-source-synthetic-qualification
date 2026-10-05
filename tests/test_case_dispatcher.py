@@ -141,6 +141,83 @@ class DispatchTests(unittest.TestCase):
             del altered[key]
             self.assertIsNone(dispatcher.admit_dispatch(altered, MANIFEST['source_sha'], now=NOW, configured=True), key)
 
+    def test_dispatch_admission_and_case_window_boundaries(self):
+        env = {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': 'dallanlee/idyll-cloud-source-synthetic-qualification',
+            'GITHUB_REPOSITORY_ID': '1402638368', 'GITHUB_REF': 'refs/heads/codex/qualification',
+            'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_SHA': MANIFEST['source_sha'],
+            'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '1', 'GITHUB_RUN_NUMBER': '1',
+            'QUAL_DISPATCH_ACCEPTED_CODE_SHA': MANIFEST['source_sha'],
+            'QUAL_DISPATCH_APPROVED_RUN_NUMBER': '1',
+            'QUAL_DISPATCH_OCCURRENCE_ID': MANIFEST['occurrence_id'],
+            'QUAL_DISPATCH_APPROVED_OCCURRENCE_ID': MANIFEST['occurrence_id'],
+            'QUAL_DISPATCH_DUE_AT': '2026-10-04T00:00:00Z',
+            'QUAL_DISPATCH_CUTOFF_AT': '2026-10-04T00:10:00Z',  # 600s
+            'QUAL_DISPATCH_APPROVED': dispatcher.CONTRACT, 'QUAL_DISPATCH_CASE': 'retained-stop'}
+        # retained-stop at 600s admitted
+        admitted = dispatcher.admit_dispatch(env, MANIFEST['source_sha'], now=NOW, configured=True)
+        self.assertIsNotNone(admitted)
+        self.assertEqual(admitted['contract'], dispatcher.CONTRACT)
+
+        # retained-stop at 601s rejected
+        env_601 = dict(env, QUAL_DISPATCH_CUTOFF_AT='2026-10-04T00:10:01Z')
+        self.assertIsNone(dispatcher.admit_dispatch(env_601, MANIFEST['source_sha'], now=NOW, configured=True))
+
+        # retained-stop at exact cutoff rejected
+        exact_cutoff = datetime(2026, 10, 4, 0, 10, 0, tzinfo=timezone.utc)
+        self.assertIsNone(dispatcher.admit_dispatch(env, MANIFEST['source_sha'], now=exact_cutoff, configured=True))
+
+        # observation dispatch at 120s admitted
+        obs_env = dict(env, QUAL_DISPATCH_CASE='observation', QUAL_DISPATCH_CUTOFF_AT='2026-10-04T00:02:00Z')
+        self.assertIsNotNone(dispatcher.admit_dispatch(obs_env, MANIFEST['source_sha'], now=NOW, configured=True))
+
+        # observation dispatch at 121s rejected
+        obs_env_121 = dict(env, QUAL_DISPATCH_CASE='observation', QUAL_DISPATCH_CUTOFF_AT='2026-10-04T00:02:01Z')
+        self.assertIsNone(dispatcher.admit_dispatch(obs_env_121, MANIFEST['source_sha'], now=NOW, configured=True))
+
+        # wrongcase rejected
+        wrong_env = dict(env, QUAL_DISPATCH_CASE='wrongcase')
+        self.assertIsNone(dispatcher.admit_dispatch(wrong_env, MANIFEST['source_sha'], now=NOW, configured=True))
+
+    def test_dispatch_case_window_and_exact_cutoff(self):
+        # 600s window confirms for retained-stop
+        m_600 = dict(MANIFEST, contract=dispatcher.CONTRACT,
+                     due_at='2026-10-04T00:00:00Z', cutoff_at='2026-10-04T00:10:00Z')
+        api = DispatchAPI()
+        result = dispatcher.dispatch_case(m_600, api, case='retained-stop', run_number=1, now=lambda: NOW)
+        self.assertEqual(result['outcome'], 'DISPATCH_CONFIRMED')
+
+        # 601s window refused for retained-stop
+        m_601 = dict(MANIFEST, contract=dispatcher.CONTRACT,
+                     due_at='2026-10-04T00:00:00Z', cutoff_at='2026-10-04T00:10:01Z')
+        api = DispatchAPI()
+        result = dispatcher.dispatch_case(m_601, api, case='retained-stop', run_number=1, now=lambda: NOW)
+        self.assertEqual(result['outcome'], 'INVALID_MANIFEST')
+
+        # 120s window confirms for observation
+        m_120 = dict(MANIFEST, contract=dispatcher.CONTRACT,
+                     due_at='2026-10-04T00:00:00Z', cutoff_at='2026-10-04T00:02:00Z')
+        api = DispatchAPI()
+        result = dispatcher.dispatch_case(m_120, api, case='observation', run_number=1, now=lambda: NOW)
+        self.assertEqual(result['outcome'], 'DISPATCH_CONFIRMED')
+
+        # 121s window refused for observation
+        m_121 = dict(MANIFEST, contract=dispatcher.CONTRACT,
+                     due_at='2026-10-04T00:00:00Z', cutoff_at='2026-10-04T00:02:01Z')
+        api = DispatchAPI()
+        result = dispatcher.dispatch_case(m_121, api, case='observation', run_number=1, now=lambda: NOW)
+        self.assertEqual(result['outcome'], 'INVALID_MANIFEST')
+
+        # exact cutoff at request time raises TimeoutError / DEADLINE_EXPIRED
+        api = DispatchAPI()
+        cutoff_dt = datetime(2026, 10, 4, 0, 10, 0, tzinfo=timezone.utc)
+        result = dispatcher.dispatch_case(m_600, api, case='retained-stop', run_number=1, now=lambda: cutoff_dt)
+        self.assertEqual(result['outcome'], 'DEADLINE_EXPIRED')
+
+        # wrongcase refused
+        api = DispatchAPI()
+        result = dispatcher.dispatch_case(m_600, api, case='wrongcase', run_number=1, now=lambda: NOW)
+        self.assertEqual(result['outcome'], 'INVALID_MANIFEST')
+
 
 if __name__ == '__main__':
     unittest.main()

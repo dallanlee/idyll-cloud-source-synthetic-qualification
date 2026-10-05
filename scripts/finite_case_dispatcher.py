@@ -11,15 +11,16 @@ TARGETS = {'retained-stop': 'retained-stop-qualification.yml',
 def admit_dispatch(env, checkout_sha, *, now, configured=DISPATCH_CONFIGURED):
     try:
         number = env['GITHUB_RUN_NUMBER']
+        case = env.get('QUAL_DISPATCH_CASE')
         if (not number.isascii() or not number.isdecimal() or not 1 <= int(number) <= 100000
                 or env.get('QUAL_DISPATCH_APPROVED_RUN_NUMBER') != number
-                or env.get('QUAL_DISPATCH_CASE') not in TARGETS):
+                or case not in TARGETS):
             return None
         # The fresh dispatcher authority binds its known native run_number. Its
         # new run_id is subsequently verified against provider-native metadata.
         values = dict(env, QUAL_DISPATCH_APPROVED_RUN_ID=env['GITHUB_RUN_ID'])
         return admit_environment(values, checkout_sha, now=now, configured=configured,
-                                 prefix='QUAL_DISPATCH_', contract=CONTRACT)
+                                 prefix='QUAL_DISPATCH_', contract=CONTRACT, case=case)
     except Exception:
         return None
 
@@ -27,7 +28,7 @@ def admit_dispatch(env, checkout_sha, *, now, configured=DISPATCH_CONFIGURED):
 def dispatch_case(manifest, transport, *, case, run_number, now, progress=lambda value: None):
     result = dict(empty_receipt('INVALID_MANIFEST'), contract=CONTRACT, dispatch_attempt_count=0)
     try:
-        due, cutoff = validate_manifest(manifest, contract=CONTRACT)
+        due, cutoff = validate_manifest(manifest, contract=CONTRACT, case=case)
         if case not in TARGETS or type(run_number) is not int or not 1 <= run_number <= 100000:
             raise ValueError('Finite dispatcher refused')
         result.update({key: manifest[key] for key in ('occurrence_id', 'source_sha', 'run_id', 'attempt')})

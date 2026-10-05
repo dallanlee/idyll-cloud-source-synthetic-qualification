@@ -21,9 +21,12 @@ REPOSITORY = 'dallanlee/idyll-cloud-source-synthetic-qualification'
 BRANCH_REF = 'refs/heads/codex/qualification'
 REPO_URL = FixedSourceServices.REPO_URL
 BOT = {'id': 41898282, 'login': 'github-actions[bot]', 'type': 'Bot'}
+STOP_CONTRACT_V2 = 'idyll-cloud-q-v2-retained-stop'
+LEGACY_STOP_CONTRACT = 'idyll-cloud-q-v1-retained-stop'
+DISPATCH_CONTRACT = 'idyll-cloud-q-v1-case-dispatcher'
 
 
-def validate_manifest(manifest, *, contract=CONTRACT):
+def validate_manifest(manifest, *, contract=CONTRACT, case=None):
     if (not isinstance(manifest, dict)
             or set(manifest) != {'contract', 'occurrence_id', 'due_at', 'cutoff_at',
                                 'source_sha', 'run_id', 'attempt'}
@@ -33,8 +36,31 @@ def validate_manifest(manifest, *, contract=CONTRACT):
             or not isinstance(manifest['due_at'], str)
             or not isinstance(manifest['cutoff_at'], str)):
         raise ValueError('Finite authority refused')
+    if case not in (None, 'retained-stop', 'observation'):
+        raise ValueError('Finite authority refused')
+    if contract == STOP_CONTRACT_V2:
+        if case not in (None, 'retained-stop'):
+            raise ValueError('Finite authority refused')
+        max_duration = 600
+    elif contract == DISPATCH_CONTRACT:
+        if case == 'retained-stop':
+            max_duration = 600
+        elif case in (None, 'observation'):
+            max_duration = 120
+        else:
+            raise ValueError('Finite authority refused')
+    elif contract == LEGACY_STOP_CONTRACT:
+        if case not in (None, 'retained-stop'):
+            raise ValueError('Finite authority refused')
+        max_duration = 120
+    elif contract == CONTRACT:
+        if case not in (None, 'observation'):
+            raise ValueError('Finite authority refused')
+        max_duration = 120
+    else:
+        raise ValueError('Finite authority refused')
     due, cutoff = instant(manifest['due_at']), instant(manifest['cutoff_at'])
-    if not 0 < (cutoff - due).total_seconds() <= 120:
+    if not 0 < (cutoff - due).total_seconds() <= max_duration:
         raise ValueError('Finite authority refused')
     return due, cutoff
 
@@ -103,7 +129,7 @@ def verify_claim_attribution(request, claim):
 
 
 def admit_environment(env, checkout_sha, *, now, configured=OBSERVATION_CONFIGURED,
-                      prefix='QUAL_OBSERVATION_', contract=CONTRACT):
+                      prefix='QUAL_OBSERVATION_', contract=CONTRACT, case=None):
     """Protected configuration plus native Actions context; never CLI auth."""
     if configured is not True:
         return None
@@ -121,10 +147,17 @@ def admit_environment(env, checkout_sha, *, now, configured=OBSERVATION_CONFIGUR
                 or env.get(prefix + 'OCCURRENCE_ID') != occurrence
                 or env.get(prefix + 'APPROVED') != contract):
             return None
+        if case is None:
+            if prefix == 'QUAL_DISPATCH_':
+                case = env.get('QUAL_DISPATCH_CASE')
+            elif prefix == 'QUAL_STOP_' or contract == STOP_CONTRACT_V2:
+                case = 'retained-stop'
+            elif contract == CONTRACT:
+                case = 'observation'
         manifest = {'contract': contract, 'occurrence_id': occurrence,
             'due_at': env[prefix + 'DUE_AT'], 'cutoff_at': env[prefix + 'CUTOFF_AT'],
             'source_sha': sha, 'run_id': run, 'attempt': 1}
-        due, cutoff = validate_manifest(manifest, contract=contract)
+        due, cutoff = validate_manifest(manifest, contract=contract, case=case)
         if now.tzinfo is None or not due <= now < cutoff:
             return None
         return manifest

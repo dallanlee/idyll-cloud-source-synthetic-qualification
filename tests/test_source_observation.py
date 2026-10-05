@@ -1,7 +1,7 @@
 """Approved observer seams; synthetic boundary models, no provider access."""
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
@@ -197,6 +197,162 @@ class ObservationTests(unittest.TestCase):
             del altered[key]
             self.assertIsNone(observer.admit_environment(altered, SHA, now=NOW, configured=True), key)
         self.assertIsNone(observer.admit_environment(env, '2' * 40, now=NOW, configured=True))
+
+    def test_validate_manifest_window_boundaries_and_cases(self):
+        due = datetime(2026, 10, 4, 0, 0, 0, tzinfo=timezone.utc)
+        def make_manifest(contract, seconds):
+            cutoff = due + timedelta(seconds=seconds)
+            return dict(MANIFEST, contract=contract, due_at=due.isoformat(), cutoff_at=cutoff.isoformat())
+
+        # 120s is valid for all
+        for contract, case in [
+            (observer.CONTRACT, None),
+            (observer.CONTRACT, 'observation'),
+            (observer.STOP_CONTRACT_V2, None),
+            (observer.STOP_CONTRACT_V2, 'retained-stop'),
+            (observer.DISPATCH_CONTRACT, 'retained-stop'),
+            (observer.DISPATCH_CONTRACT, 'observation'),
+            (observer.LEGACY_STOP_CONTRACT, None),
+            (observer.LEGACY_STOP_CONTRACT, 'retained-stop'),
+        ]:
+            m = make_manifest(contract, 120)
+            d, c = observer.validate_manifest(m, contract=contract, case=case)
+            self.assertEqual((c - d).total_seconds(), 120)
+
+        # 121s is valid only for STOP_CONTRACT_V2 and DISPATCH_CONTRACT with case='retained-stop'
+        for contract, case in [
+            (observer.STOP_CONTRACT_V2, None),
+            (observer.STOP_CONTRACT_V2, 'retained-stop'),
+            (observer.DISPATCH_CONTRACT, 'retained-stop'),
+        ]:
+            m = make_manifest(contract, 121)
+            d, c = observer.validate_manifest(m, contract=contract, case=case)
+            self.assertEqual((c - d).total_seconds(), 121)
+
+        # 121s rejected for observation, legacy stop, dispatch observation, dispatch None
+        for contract, case in [
+            (observer.CONTRACT, None),
+            (observer.CONTRACT, 'observation'),
+            (observer.LEGACY_STOP_CONTRACT, None),
+            (observer.LEGACY_STOP_CONTRACT, 'retained-stop'),
+            (observer.DISPATCH_CONTRACT, 'observation'),
+            (observer.DISPATCH_CONTRACT, None),
+        ]:
+            with self.subTest(contract=contract, case=case), self.assertRaises(ValueError):
+                observer.validate_manifest(make_manifest(contract, 121), contract=contract, case=case)
+
+        # 600s is valid only for STOP_CONTRACT_V2 and DISPATCH_CONTRACT with case='retained-stop'
+        for contract, case in [
+            (observer.STOP_CONTRACT_V2, None),
+            (observer.STOP_CONTRACT_V2, 'retained-stop'),
+            (observer.DISPATCH_CONTRACT, 'retained-stop'),
+        ]:
+            m = make_manifest(contract, 600)
+            d, c = observer.validate_manifest(m, contract=contract, case=case)
+            self.assertEqual((c - d).total_seconds(), 600)
+
+        # 600s rejected for observation, legacy stop, dispatch observation, dispatch None
+        for contract, case in [
+            (observer.CONTRACT, None),
+            (observer.CONTRACT, 'observation'),
+            (observer.LEGACY_STOP_CONTRACT, None),
+            (observer.LEGACY_STOP_CONTRACT, 'retained-stop'),
+            (observer.DISPATCH_CONTRACT, 'observation'),
+            (observer.DISPATCH_CONTRACT, None),
+        ]:
+            with self.subTest(contract=contract, case=case), self.assertRaises(ValueError):
+                observer.validate_manifest(make_manifest(contract, 600), contract=contract, case=case)
+
+        # 601s rejected for ALL
+        for contract, case in [
+            (observer.STOP_CONTRACT_V2, None),
+            (observer.STOP_CONTRACT_V2, 'retained-stop'),
+            (observer.DISPATCH_CONTRACT, 'retained-stop'),
+            (observer.DISPATCH_CONTRACT, 'observation'),
+            (observer.CONTRACT, None),
+            (observer.CONTRACT, 'observation'),
+            (observer.LEGACY_STOP_CONTRACT, None),
+        ]:
+            with self.subTest(contract=contract, case=case), self.assertRaises(ValueError):
+                observer.validate_manifest(make_manifest(contract, 601), contract=contract, case=case)
+
+        # Zero duration (cutoff == due) rejected for all
+        for contract in (observer.CONTRACT, observer.STOP_CONTRACT_V2, observer.DISPATCH_CONTRACT, observer.LEGACY_STOP_CONTRACT):
+            with self.subTest(contract=contract, seconds=0), self.assertRaises(ValueError):
+                observer.validate_manifest(make_manifest(contract, 0), contract=contract)
+
+        # Reversed duration (cutoff < due) rejected for all
+        for contract in (observer.CONTRACT, observer.STOP_CONTRACT_V2, observer.DISPATCH_CONTRACT, observer.LEGACY_STOP_CONTRACT):
+            with self.subTest(contract=contract, seconds=-10), self.assertRaises(ValueError):
+                observer.validate_manifest(make_manifest(contract, -10), contract=contract)
+
+        # Wrongcase rejected
+        for bad_case in ('wrongcase', 'invalid', ''):
+            with self.subTest(case=bad_case), self.assertRaises(ValueError):
+                observer.validate_manifest(make_manifest(observer.STOP_CONTRACT_V2, 600),
+                                           contract=observer.STOP_CONTRACT_V2, case=bad_case)
+        # Mismatched cases between contracts rejected
+        with self.assertRaises(ValueError):
+            observer.validate_manifest(make_manifest(observer.STOP_CONTRACT_V2, 600),
+                                       contract=observer.STOP_CONTRACT_V2, case='observation')
+        with self.assertRaises(ValueError):
+            observer.validate_manifest(make_manifest(observer.CONTRACT, 120),
+                                       contract=observer.CONTRACT, case='retained-stop')
+        with self.assertRaises(ValueError):
+            observer.validate_manifest(make_manifest(observer.LEGACY_STOP_CONTRACT, 120),
+                                       contract=observer.LEGACY_STOP_CONTRACT, case='observation')
+
+    def test_admit_environment_window_boundaries_and_exact_cutoff(self):
+        env = {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': observer.REPOSITORY,
+            'GITHUB_REPOSITORY_ID': '1402638368', 'GITHUB_REF': observer.BRANCH_REF,
+            'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_SHA': SHA,
+            'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '1',
+            'QUAL_STOP_ACCEPTED_CODE_SHA': SHA,
+            'QUAL_STOP_APPROVED_RUN_ID': '123',
+            'QUAL_STOP_OCCURRENCE_ID': MANIFEST['occurrence_id'],
+            'QUAL_STOP_APPROVED_OCCURRENCE_ID': MANIFEST['occurrence_id'],
+            'QUAL_STOP_DUE_AT': '2026-10-04T00:00:00Z',
+            'QUAL_STOP_CUTOFF_AT': '2026-10-04T00:10:00Z',  # 600s
+            'QUAL_STOP_APPROVED': observer.STOP_CONTRACT_V2}
+        now_valid = datetime(2026, 10, 4, 0, 5, 0, tzinfo=timezone.utc)
+        admitted = observer.admit_environment(env, SHA, now=now_valid, configured=True,
+                                              prefix='QUAL_STOP_', contract=observer.STOP_CONTRACT_V2)
+        self.assertIsNotNone(admitted)
+        self.assertEqual(admitted['contract'], observer.STOP_CONTRACT_V2)
+
+        # 601s rejected in admission
+        env_601 = dict(env, QUAL_STOP_CUTOFF_AT='2026-10-04T00:10:01Z')
+        self.assertIsNone(observer.admit_environment(env_601, SHA, now=now_valid, configured=True,
+                                                     prefix='QUAL_STOP_', contract=observer.STOP_CONTRACT_V2))
+
+        # exact cutoff boundary: now == cutoff is rejected
+        exact_cutoff = datetime(2026, 10, 4, 0, 10, 0, tzinfo=timezone.utc)
+        self.assertIsNone(observer.admit_environment(env, SHA, now=exact_cutoff, configured=True,
+                                                     prefix='QUAL_STOP_', contract=observer.STOP_CONTRACT_V2))
+
+        # now == due is admitted
+        exact_due = datetime(2026, 10, 4, 0, 0, 0, tzinfo=timezone.utc)
+        self.assertIsNotNone(observer.admit_environment(env, SHA, now=exact_due, configured=True,
+                                                        prefix='QUAL_STOP_', contract=observer.STOP_CONTRACT_V2))
+
+        # observation admission rejects 121s
+        obs_env = {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': observer.REPOSITORY,
+            'GITHUB_REPOSITORY_ID': '1402638368', 'GITHUB_REF': observer.BRANCH_REF,
+            'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_SHA': SHA,
+            'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '1',
+            'QUAL_OBSERVATION_ACCEPTED_CODE_SHA': SHA,
+            'QUAL_OBSERVATION_APPROVED_RUN_ID': '123',
+            'QUAL_OBSERVATION_OCCURRENCE_ID': MANIFEST['occurrence_id'],
+            'QUAL_OBSERVATION_APPROVED_OCCURRENCE_ID': MANIFEST['occurrence_id'],
+            'QUAL_OBSERVATION_DUE_AT': '2026-10-04T00:00:00Z',
+            'QUAL_OBSERVATION_CUTOFF_AT': '2026-10-04T00:02:01Z',  # 121s
+            'QUAL_OBSERVATION_APPROVED': observer.CONTRACT}
+        self.assertIsNone(observer.admit_environment(obs_env, SHA, now=now_valid, configured=True))
+
+        # observation admission exact cutoff rejected
+        obs_120 = dict(obs_env, QUAL_OBSERVATION_CUTOFF_AT='2026-10-04T00:02:00Z')
+        obs_cutoff = datetime(2026, 10, 4, 0, 2, 0, tzinfo=timezone.utc)
+        self.assertIsNone(observer.admit_environment(obs_120, SHA, now=obs_cutoff, configured=True))
 
 
 if __name__ == '__main__':
