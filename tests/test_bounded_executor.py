@@ -1,5 +1,6 @@
 """Approved process deadline seam, including a real blocked DNS child."""
 import os
+import copy
 import json
 import sys
 import time
@@ -39,6 +40,7 @@ class ExecutorTests(unittest.TestCase):
                 sanitize_result(dict(receipt, control_witness=dict(receipt['control_witness'], **changed)), manifest)
         old = dict(receipt, contract=probe.LEGACY_CONTRACT, github_attempt_count=19, github_action_count=19)
         old.pop('control_witness')
+        old.pop('refusal_diagnostics')  # historical receipts predate this optional v2 field
         self.assertEqual(sanitize_result(old, dict(manifest, contract=probe.LEGACY_CONTRACT)), old)
         old_diagnostic = {key: old[key] for key in ('contract', 'automatic_retry_allowed',
             'occurrence_id', 'source_sha', 'run_id', 'attempt', 'source_attempt_count', 'source_action_count')}
@@ -48,6 +50,62 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(sanitize_result(old_diagnostic, dict(manifest, contract=probe.LEGACY_CONTRACT)), old_diagnostic)
         with self.assertRaises(ValueError):
             sanitize_result(dict(old, control_witness=receipt['control_witness']), dict(manifest, contract=probe.LEGACY_CONTRACT))
+
+    def test_parent_allows_only_fixed_boolean_diagnostics_from_attempted_v2_operations(self):
+        from test_retained_stop import StopAPI, NOW
+        import retained_stop_probe as probe
+        manifest = dict(MANIFEST, contract=probe.CONTRACT)
+        receipt = probe.probe_retained_stop(manifest, StopAPI(), now=lambda: NOW)
+        historical = dict(receipt)
+        historical.pop('refusal_diagnostics')
+        self.assertEqual(sanitize_result(historical, manifest), historical)
+        diagnostics = receipt['refusal_diagnostics']
+        bad_shapes = [None, [], {}, {'delete': diagnostics['delete']},
+            dict(diagnostics, private_response='private-sentinel'),
+            dict(diagnostics, patch=dict(diagnostics['patch'], http_422=1)),
+            dict(diagnostics, patch=dict(diagnostics['patch'], rule_violation_prefix='private-sentinel')),
+            dict(diagnostics, patch=dict(diagnostics['patch'], extra='private-sentinel')),
+            dict(diagnostics, patch={'http_422': True})]
+        for changed in bad_shapes:
+            with self.subTest(diagnostics=changed), self.assertRaises(ValueError):
+                sanitize_result(dict(receipt, refusal_diagnostics=changed), manifest)
+        for field, changed in [('control_witness', None), ('claim', None),
+                               ('patch_attempt_count', 0), ('delete_attempt_count', 0),
+                               ('outcome', 'AUTHORITY_REFUSED')]:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                sanitize_result(dict(receipt, **{field: changed}), manifest)
+        with self.assertRaises(ValueError):
+            sanitize_result(dict(receipt, contract=probe.LEGACY_CONTRACT),
+                dict(manifest, contract=probe.LEGACY_CONTRACT))
+        # Diagnostics supply no success authority and cannot repair missing controls.
+        bad = copy.deepcopy(receipt)
+        bad['checks']['delete_ruleset_refused'] = False
+        with self.assertRaises(ValueError):
+            sanitize_result(bad, manifest)
+
+    def test_fixed_response_diagnostics_survive_real_supervised_ipc_and_child_is_reaped(self):
+        from test_retained_stop import StopAPI
+        import retained_stop_probe as probe
+        payload, deadline = payload_and_deadline(1.5)
+        payload['mode'] = 'retained-stop'
+        payload['manifest']['contract'] = probe.CONTRACT
+        del payload['clickup_token']
+        now = datetime.now(timezone.utc)
+        api = StopAPI()
+        api.approvals[0]['comment'] = probe.make_control_witness(payload['manifest'],
+            observed_at=now.isoformat(), controller_sha256='a' * 64)
+        receipt = probe.probe_retained_stop(payload['manifest'], api, now=lambda: now)
+        self.assertEqual(receipt['outcome'], 'RETAINED_STOP_PASS')
+        child = ('import json,sys,time; sys.stdin.readline(); '
+                 'print(json.dumps({"type":"result","result":json.loads(sys.argv[1])}),flush=True); '
+                 'time.sleep(60)')
+        result = run_supervised(payload, deadline,
+            child_command=[sys.executable, '-B', '-c', child, json.dumps(receipt)])
+        self.assertEqual(result['outcome'], 'RETAINED_STOP_PASS')
+        self.assertEqual(result['refusal_diagnostics'], receipt['refusal_diagnostics'])
+        self.assertTrue(result['executor']['reaped'])
+        with self.assertRaises(ProcessLookupError):
+            os.kill(result['executor']['pid'], 0)
 
     def test_real_probe_ruleset_refusal_and_http_stage_survive_supervised_ipc(self):
         fixture = str(Path(__file__).parent / 'fixtures' / 'executor_frames.py')

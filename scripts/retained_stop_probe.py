@@ -40,6 +40,27 @@ def ruleset_refused(status, value, operation):
     return 'Cannot ' + operation + ' this protected ref' in details
 
 
+def refusal_diagnostics(status, value, operation):
+    """Fixed booleans for observed responses; never publish provider text."""
+    body_is_object = isinstance(value, dict)
+    message = value.get('message') if body_is_object else None
+    errors = value.get('errors', []) if body_is_object else None
+    message_is_text = isinstance(message, str)
+    errors_is_array = isinstance(errors, list)
+    detail = 'Cannot ' + operation + ' this protected ref'
+    return {
+        'http_422': status == 422,
+        'body_is_object': body_is_object,
+        'message_is_text': message_is_text,
+        'rule_violation_prefix': message_is_text and message.startswith('Repository rule violations found'),
+        'errors_is_array': errors_is_array,
+        'operation_in_message': message_is_text and detail in message,
+        'operation_in_errors': errors_is_array and any(
+            isinstance(error, dict) and isinstance(error.get('message'), str)
+            and detail in error['message'] for error in errors),
+    }
+
+
 WITNESS_PREFIX = 'idyll-control-witness-v1 '
 WITNESS_MAX_BYTES = 1536
 WITNESS_MAX_AGE = 60
@@ -298,6 +319,7 @@ def probe_retained_stop(manifest, transport, *, now, progress=lambda value: None
         result['outcome'] = 'RETAINED_STOP_FAILED'
         patch_status, patch_body = request('PATCH', REPO_URL + '/git/refs/tags/idyll-cloud-q-stop-v1',
             {'sha': ALTERNATE_SHA, 'force': True})
+        result['refusal_diagnostics'] = {'patch': refusal_diagnostics(patch_status, patch_body, 'update')}
         patch_refused = ruleset_refused(patch_status, patch_body, 'update')
         try:
             stop_identity()
@@ -308,6 +330,7 @@ def probe_retained_stop(manifest, transport, *, now, progress=lambda value: None
         phase = 'delete'
         recheck()
         delete_status, delete_body = request('DELETE', REPO_URL + '/git/refs/tags/idyll-cloud-q-stop-v1')
+        result['refusal_diagnostics']['delete'] = refusal_diagnostics(delete_status, delete_body, 'delete')
         delete_refused = ruleset_refused(delete_status, delete_body, 'delete')
         after = stop_identity()
         checks = {'patch_ruleset_refused': patch_refused, 'delete_ruleset_refused': delete_refused,

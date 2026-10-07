@@ -39,7 +39,8 @@ def sanitize_result(value, manifest):
     allowed = set(COUNT_KEYS) | {'contract', 'outcome', 'automatic_retry_allowed',
         'occurrence_id', 'source_sha', 'run_id', 'attempt', 'claim', 'receipt', 'checks',
         'statuses', 'retained_stop', 'dispatch_attempt_count', 'patch_attempt_count', 'delete_attempt_count',
-        'dispatch_status', 'target_run_id', 'refusal_stage', 'ruleset_http_status', 'control_witness'}
+        'dispatch_status', 'target_run_id', 'refusal_stage', 'ruleset_http_status', 'control_witness',
+        'refusal_diagnostics'}
     if (not isinstance(value, dict) or set(value) - allowed
             or value.get('outcome') not in OUTCOMES or value.get('contract') != manifest['contract']
             or value.get('automatic_retry_allowed') is not False):
@@ -54,6 +55,22 @@ def sanitize_result(value, manifest):
                or any(value[key] is not None and value[key] > 24 for key in ('github_attempt_count', 'github_action_count'))
                or {'receipt', 'dispatch_status', 'target_run_id', 'dispatch_attempt_count'} & set(value)):
         raise ValueError('IPC source-free cap refused')
+    if 'refusal_diagnostics' in value:
+        diagnostics = value['refusal_diagnostics']
+        fields = {'http_422', 'body_is_object', 'message_is_text', 'rule_violation_prefix',
+                  'errors_is_array', 'operation_in_message', 'operation_in_errors'}
+        if (not v2 or not isinstance(diagnostics, dict)
+                or set(diagnostics) not in ({'patch'}, {'patch', 'delete'})
+                or 'control_witness' not in value or value.get('claim') is None
+                or value.get('patch_attempt_count') != 1
+                or 'delete' in diagnostics and value.get('delete_attempt_count') != 1
+                or value['outcome'] not in {'RETAINED_STOP_PASS', 'RETAINED_STOP_FAILED',
+                                          'UNKNOWN_CONTROL_RESULT', 'DEADLINE_EXPIRED'}):
+            raise ValueError('IPC refusal diagnostic refused')
+        for diagnostic in diagnostics.values():
+            if (not isinstance(diagnostic, dict) or set(diagnostic) != fields
+                    or any(type(flag) is not bool for flag in diagnostic.values())):
+                raise ValueError('IPC refusal diagnostic shape refused')
     if 'control_witness' in value:
         witness = value['control_witness']
         if (not v2 or not isinstance(witness, dict) or set(witness) != {

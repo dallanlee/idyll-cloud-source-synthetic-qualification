@@ -50,6 +50,103 @@ class StopAPI(ObservationAPI):
 
 
 class StopTests(unittest.TestCase):
+    def test_delete_failure_retains_fixed_diagnostics_without_private_response_text(self):
+        api = StopAPI()
+        def generic_delete(method, url, body=None, *, deadline=None):
+            if method == 'DELETE':
+                api.delete_count += 1
+                return 422, {'message': 'private-provider-sentinel validation failure',
+                             'errors': [{'message': 'private-error-sentinel'}],
+                             'documentation_url': 'https://private-sentinel.example'}
+            return api(method, url, body, deadline=deadline)
+        result = probe.probe_retained_stop(dict(MANIFEST, contract=probe.CONTRACT),
+            generic_delete, now=lambda: NOW)
+        self.assertEqual(result['outcome'], 'RETAINED_STOP_FAILED')
+        self.assertEqual(result['refusal_diagnostics']['delete'], {
+            'http_422': True, 'body_is_object': True, 'message_is_text': True,
+            'rule_violation_prefix': False, 'errors_is_array': True,
+            'operation_in_message': False, 'operation_in_errors': False})
+        self.assertEqual((api.patch_count, api.delete_count, api.source_reads), (1, 1, 0))
+        self.assertEqual(result['github_attempt_count'], 23)
+        self.assertNotIn('private-', json.dumps(result))
+
+    def test_response_shapes_and_operation_details_stay_distinct_and_fail_closed(self):
+        prefix = 'Repository rule violations found'
+        cases = [
+            (422, None, (True, False, False, False, False, False, False), False),
+            (422, 'private-response-sentinel', (True, False, False, False, False, False, False), False),
+            (422, [], (True, False, False, False, False, False, False), False),
+            (422, {}, (True, True, False, False, True, False, False), False),
+            (422, {'message': 1}, (True, True, False, False, True, False, False), False),
+            (422, {'message': prefix}, (True, True, True, True, True, False, False), False),
+            (422, {'message': prefix, 'errors': [{'message': 'Cannot update this protected ref'}]},
+                (True, True, True, True, True, False, False), False),
+            (422, {'message': prefix, 'errors': None},
+                (True, True, True, True, False, False, False), False),
+            (422, {'message': prefix, 'errors': 1},
+                (True, True, True, True, False, False, False), False),
+            (422, {'message': prefix + ': Cannot delete this protected ref', 'errors': None},
+                (True, True, True, True, False, True, False), False),
+            (422, {'message': prefix + ': Cannot delete this protected ref'},
+                (True, True, True, True, True, True, False), True),
+            (422, {'message': prefix, 'errors': [None, 'private-error-sentinel', {'message': 1},
+                {'message': 'Cannot delete this protected ref. private-detail-sentinel'}]},
+                (True, True, True, True, True, False, True), True),
+            (403, {'message': prefix, 'errors': [{'message': 'Cannot delete this protected ref'}]},
+                (False, True, True, True, True, False, True), False),
+            (422, {'message': 'generic validation', 'errors': [{'message': 'Cannot delete this protected ref'}]},
+                (True, True, True, False, True, False, True), False),
+        ]
+        keys = ('http_422', 'body_is_object', 'message_is_text', 'rule_violation_prefix',
+                'errors_is_array', 'operation_in_message', 'operation_in_errors')
+        for status, response, flags, passes in cases:
+            with self.subTest(status=status, response=response):
+                api = StopAPI()
+                def altered(method, url, body=None, *, deadline=None):
+                    original = api(method, url, body, deadline=deadline)
+                    return (status, response) if method == 'DELETE' else original
+                result = probe.probe_retained_stop(dict(MANIFEST, contract=probe.CONTRACT),
+                    altered, now=lambda: NOW)
+                self.assertEqual(result['outcome'], 'RETAINED_STOP_PASS' if passes else 'RETAINED_STOP_FAILED')
+                diagnostic = result['refusal_diagnostics']['delete']
+                self.assertEqual(diagnostic, dict(zip(keys, flags)))
+                self.assertTrue(all(type(flag) is bool for flag in diagnostic.values()))
+                self.assertLess(len(json.dumps(result['refusal_diagnostics'])), 600)
+                self.assertNotIn('private-', json.dumps(result))
+                self.assertEqual((api.patch_count, api.delete_count, api.source_reads), (1, 1, 0))
+                self.assertEqual(result['github_attempt_count'], 23 if response not in (
+                    {'message': prefix, 'errors': None}, {'message': prefix, 'errors': 1},
+                    {'message': prefix + ': Cannot delete this protected ref', 'errors': None}) else 22)
+
+    def test_patch_early_exit_preserves_only_its_observed_diagnostics(self):
+        for response in ({'message': 'private-patch-sentinel'},
+                         {'message': 'Repository rule violations found', 'errors': None}):
+            with self.subTest(response=response):
+                api = StopAPI()
+                def altered(method, url, body=None, *, deadline=None):
+                    original = api(method, url, body, deadline=deadline)
+                    return (422, response) if method == 'PATCH' else original
+                result = probe.probe_retained_stop(dict(MANIFEST, contract=probe.CONTRACT),
+                    altered, now=lambda: NOW)
+                self.assertEqual(result['outcome'], 'RETAINED_STOP_FAILED')
+                self.assertEqual(set(result['refusal_diagnostics']), {'patch'})
+                self.assertEqual((api.patch_count, api.delete_count, api.source_reads), (1, 0, 0))
+                self.assertNotIn('private-', json.dumps(result))
+
+    def test_lost_delete_response_adds_no_invented_observation(self):
+        api = StopAPI()
+        def lost(method, url, body=None, *, deadline=None):
+            if method == 'DELETE':
+                api.delete_count += 1
+                raise ConnectionError('private-transport-sentinel')
+            return api(method, url, body, deadline=deadline)
+        result = probe.probe_retained_stop(dict(MANIFEST, contract=probe.CONTRACT),
+            lost, now=lambda: NOW)
+        self.assertEqual(result['outcome'], 'UNKNOWN_CONTROL_RESULT')
+        self.assertEqual(set(result['refusal_diagnostics']), {'patch'})
+        self.assertEqual((api.patch_count, api.delete_count, api.source_reads), (1, 1, 0))
+        self.assertNotIn('private-', json.dumps(result))
+
     def test_visible_stop_bypass_mismatch_is_identified_after_eight_reads_without_any_write(self):
         api, calls = StopAPI(), []
         def hidden_bypass(method, url, body=None, *, deadline=None):
